@@ -1,13 +1,13 @@
 """
-Train and evaluate the Random Forest model on Baseline + Advanced.
+This script trains and evaluates the Random Forest model on Baseline and Advanced datasets.
 
-Outputs (written to `results/random_forest/`):
-    - metrics.json                       (extras: top-20 importances)
+What we save in `results/random_forest/`:
+    - metrics.json (the extras has the top-20 feature importances)
     - predictions_baseline.npy
     - predictions_advanced.npy
     - confusion_matrix.png
     - roc_curve.png
-    - feature_importance.png             top-20 horizontal bar chart (Advanced)
+    - feature_importance.png  the top-20 horizontal bar chart for the Advanced dataset
 """
 
 from __future__ import annotations
@@ -48,12 +48,23 @@ MODEL_CONFIG = {
 
 
 def _build_model() -> RandomForestClassifier:
+    """
+    Here we just create the Random Forest classifier with our config
+    :return: the Random Forest model object
+    """
     return RandomForestClassifier(**MODEL_CONFIG)
 
 
 def _top_k_importances(model: RandomForestClassifier,
                        feature_names: pd.Index,
                        k: int) -> pd.Series:
+    """
+    This function takes the trained model and returns the top k features by importance
+    :param model: the trained Random Forest model
+    :param feature_names: the names of the features (the columns)
+    :param k: the number of top features we want to take
+    :return: a pandas Series of the top k features sorted by importance
+    """
     return (
         pd.Series(model.feature_importances_, index=feature_names)
           .sort_values(ascending=False)
@@ -62,7 +73,13 @@ def _top_k_importances(model: RandomForestClassifier,
 
 
 def _feature_importance_figure(top: pd.Series):
+    """
+    Here we draw the horizontal bar chart of the top feature importances
+    :param top: the Series of the top features and their importances
+    :return: the matplotlib figure of the plot
+    """
     fig, ax = plt.subplots(figsize=(9, 8))
+    # we flip the order so the most important feature appears on the top of the chart
     top.iloc[::-1].plot(kind="barh", ax=ax, color="steelblue")
     ax.set_xlabel("Feature importance (impurity reduction, Gini)")
     ax.set_ylabel("")
@@ -73,15 +90,22 @@ def _feature_importance_figure(top: pd.Series):
 
 
 def main() -> None:
+    """
+    The main function that runs the whole training pipeline for the Random Forest model
+    here we load the data, train on each dataset, calculate the metrics, save the plots
+    and write the final metrics.json
+    """
     print("=" * 72)
     print(f"  TRAIN — {DISPLAY_NAME}   (random_state = {RANDOM_STATE})")
     print("=" * 72)
 
+    # loading the preprocessed datasets and the labels
     datasets, y_train, y_test = load_preprocessed()
     per_ds_results = {}
     advanced_model = None
     advanced_feature_names = None
 
+    # going over each dataset (Baseline and Advanced) and training the model
     for ds_name in DATASETS:
         X_train, X_test = datasets[ds_name]
         model = _build_model()
@@ -91,12 +115,14 @@ def main() -> None:
         print_dataset_block(ds_name, X_train.shape, result)
         save_predictions(MODEL_SLUG, ds_name, result["y_pred"])
 
+        # we keep the Advanced model and its feature names for the feature importance plot
         if ds_name == "Advanced":
             advanced_model = result["model"]
             advanced_feature_names = X_train.columns
 
     print_delta(per_ds_results)
 
+    # building the confusion matrix array for the Advanced fit
     adv = per_ds_results["Advanced"]
     cm_array = np.array([
         [adv["confusion_matrix"]["tn"], adv["confusion_matrix"]["fp"]],
@@ -106,6 +132,7 @@ def main() -> None:
     save_figure(MODEL_SLUG, "confusion_matrix.png", fig_cm)
     plt.close(fig_cm)
 
+    # creating the ROC curve plot for the Advanced fit
     fig_roc, auc = roc_curve_figure(
         y_test, adv["proba_hit"],
         title=f"{DISPLAY_NAME} — ROC Curve (Advanced)",
@@ -114,7 +141,7 @@ def main() -> None:
     save_figure(MODEL_SLUG, "roc_curve.png", fig_roc)
     plt.close(fig_roc)
 
-    # Feature importance plot — top-K
+    # now we draw the feature importance plot of the top K features
     top = _top_k_importances(advanced_model, advanced_feature_names, TOP_K)
     print(f"\n  Top {TOP_K} feature importances (Advanced):")
     for rank, (name, val) in enumerate(top.items(), 1):
@@ -123,6 +150,7 @@ def main() -> None:
     save_figure(MODEL_SLUG, "feature_importance.png", fig_imp)
     plt.close(fig_imp)
 
+    # finally we build the metrics payload and save it as a json
     payload = build_metrics_payload(
         model_name=MODEL_NAME,
         display_name=DISPLAY_NAME,

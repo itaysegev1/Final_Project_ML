@@ -1,5 +1,5 @@
 """
-Train and evaluate the AdaBoost classifier on Baseline + Advanced.
+This script trains the AdaBoost classifier and checks how it does on the Baseline and Advanced datasets.
 
 Outputs (written to `results/adaboost/`):
     - metrics.json
@@ -8,11 +8,11 @@ Outputs (written to `results/adaboost/`):
     - confusion_matrix.png
     - roc_curve.png
 
-AdaBoost (boosted decision stumps) is the mildly-non-linear member of the
-linear lineup. It shows the strongest class asymmetry of any model in
-the study (~0.575 FP-rate vs 0.257 FN-rate at default threshold) — a
-useful counter-example to the symmetric-errors story Logistic Regression
-tells in Phase 4's threshold sweep.
+AdaBoost (with boosted decision stumps) is the only kind of non-linear model in
+our linear lineup. It shows by far the biggest class asymmetry out of all the models
+we tried (~0.575 FP-rate vs 0.257 FN-rate at the default threshold), which makes it
+a nice counter example to the symmetric-errors story that Logistic Regression
+gives us in the Phase 4 threshold sweep.
 """
 
 from __future__ import annotations
@@ -50,45 +50,63 @@ MODEL_CONFIG = {
 
 
 def _build_model() -> AdaBoostClassifier:
+    """
+    Here we just build a fresh AdaBoost classifier with the config we set above
+    :return: the AdaBoost classifier
+    """
     return AdaBoostClassifier(**MODEL_CONFIG)
 
 
 def main() -> None:
+    """
+    The main function, this is the whole training and evaluation flow for AdaBoost.
+    We load the data, run over the datasets, fit a model on each one, save the
+    predictions and then save the plots and the metrics json at the end.
+    :return: nothing, everything gets written to disk
+    """
     print("=" * 72)
     print(f"  TRAIN — {DISPLAY_NAME}   (random_state = {RANDOM_STATE})")
     print("=" * 72)
 
+    # loading the preprocessed datasets and labels
     datasets, y_train, y_test = load_preprocessed()
     per_ds_results = {}
 
+    # looping over Baseline and Advanced and training a fresh model on each
     for ds_name in DATASETS:
-        X_train, X_test = datasets[ds_name]
+        x_train_matrix, x_test_matrix = datasets[ds_name]
         model = _build_model()
-        result = fit_and_score(model, X_train, y_train, X_test, y_test)
+        # fit the model and get back all the scores in a dict
+        result = fit_and_score(model, x_train_matrix, y_train, x_test_matrix, y_test)
         per_ds_results[ds_name] = result
 
-        print_dataset_block(ds_name, X_train.shape, result)
+        print_dataset_block(ds_name, x_train_matrix.shape, result)
         save_predictions(MODEL_SLUG, ds_name, result["y_pred"])
 
+    # printing the delta between the two datasets
     print_delta(per_ds_results)
 
-    adv = per_ds_results["Advanced"]
+    # now we make the plots from the Advanced fit
+    advanced_result = per_ds_results["Advanced"]
+    # building the confusion matrix array from the tn/fp/fn/tp values
     cm_array = np.array([
-        [adv["confusion_matrix"]["tn"], adv["confusion_matrix"]["fp"]],
-        [adv["confusion_matrix"]["fn"], adv["confusion_matrix"]["tp"]],
+        [advanced_result["confusion_matrix"]["tn"], advanced_result["confusion_matrix"]["fp"]],
+        [advanced_result["confusion_matrix"]["fn"], advanced_result["confusion_matrix"]["tp"]],
     ])
     fig_cm = confusion_matrix_figure(cm_array, title=f"{DISPLAY_NAME} — Confusion Matrix (Advanced)")
     save_figure(MODEL_SLUG, "confusion_matrix.png", fig_cm)
     plt.close(fig_cm)
 
+    # making the ROC curve plot from the predict_proba output
     fig_roc, auc = roc_curve_figure(
-        y_test, adv["proba_hit"],
+        y_test, advanced_result["proba_hit"],
         title=f"{DISPLAY_NAME} — ROC Curve (Advanced)",
         model_label=DISPLAY_NAME,
     )
     save_figure(MODEL_SLUG, "roc_curve.png", fig_roc)
     plt.close(fig_roc)
 
+    # building the metrics payload and saving it as the final json
     payload = build_metrics_payload(
         model_name=MODEL_NAME,
         display_name=DISPLAY_NAME,

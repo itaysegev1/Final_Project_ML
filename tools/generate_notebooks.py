@@ -1,17 +1,17 @@
 """
-Programmatically build all 8 portfolio notebooks via `nbformat`.
+This script builds all 8 portfolio notebooks using nbformat.
 
-The generator lives here so the notebook structure is reproducible and
-auditable: every model's notebook follows the same cell shape (markdown
-intro → setup → load data → configure → train → plot inline → save
-artifacts → summary), and any structural change is made in this one
-file. Run once after a refactor:
+We keep all the notebook generation in one place so the structure stays the same
+across the models, and any change we want to make is in one file. Each model
+notebook has the same cells order: markdown intro -> setup -> load data ->
+configure -> train -> plot -> save artifacts -> summary.
+
+To run it just do:
 
     python tools/generate_notebooks.py
 
-Outputs all eight `.ipynb` files into `notebooks/`. Each notebook
-imports from `src/` (via `sys.path` insertion) and saves its artifacts
-into `results/<slug>/`.
+It writes all 8 .ipynb files into notebooks/. Each notebook imports from src/
+(via sys.path) and saves its artifacts into results/<slug>/.
 """
 
 from __future__ import annotations
@@ -28,18 +28,33 @@ NOTEBOOKS_DIR = PROJECT_ROOT / "notebooks"
 NOTEBOOKS_DIR.mkdir(exist_ok=True)
 
 
-# ---------------------------------------------------------------------------
 # Cell-building helpers
-# ---------------------------------------------------------------------------
 def md(source: str):
+    """
+    This function wraps a string into a markdown cell, dedenting it first
+    so we can keep it nicely indented in the python source.
+    :param source: the markdown text we want in the cell
+    :return: the new markdown cell
+    """
     return nbf.v4.new_markdown_cell(dedent(source).strip())
 
 
 def code(source: str):
+    """
+    Same idea as md but for a code cell.
+    :param source: the code we want in the cell
+    :return: the new code cell
+    """
     return nbf.v4.new_code_cell(dedent(source).strip())
 
 
 def write_nb(filename: str, cells: List[Any]) -> Path:
+    """
+    Here we build the notebook object from the cells and write it to disk.
+    :param filename: the name of the file we want to write to
+    :param cells: the list of cells we want to put inside
+    :return: the path of the notebook we just wrote
+    """
     nb = nbf.v4.new_notebook()
     nb.cells = cells
     nb.metadata = {
@@ -56,18 +71,20 @@ def write_nb(filename: str, cells: List[Any]) -> Path:
     return path
 
 
-# ---------------------------------------------------------------------------
-# Standard cell blocks reused across model notebooks
-# ---------------------------------------------------------------------------
+# Standard cell blocks we reuse across the model notebooks
 def setup_cells() -> List[Any]:
+    """
+    This function returns the standard setup cells we put at the top of every model notebook.
+    :return: a list of the setup cells (markdown + code)
+    """
     return [
         md(
             """
-            ## 1 — Setup
+            ## 1 - Setup
 
-            Configure matplotlib for inline rendering, add the project
-            root to `sys.path` so we can import from `src/`, and pull in
-            the shared helpers + the project-wide `RANDOM_STATE = 42`.
+            Here we set matplotlib to inline mode, add the project root
+            to sys.path so we can import from src/, and bring in the
+            shared helpers together with the project-wide RANDOM_STATE = 42.
             """
         ),
         code(
@@ -76,8 +93,8 @@ def setup_cells() -> List[Any]:
             import sys
             from pathlib import Path
 
-            # `notebooks/` is one level below the project root; add the
-            # project root so `from src import ...` resolves correctly.
+            # notebooks/ sits one level under the project root, so we add
+            # the project root to make `from src import ...` work.
             PROJECT_ROOT = Path.cwd().parent
             if str(PROJECT_ROOT) not in sys.path:
                 sys.path.insert(0, str(PROJECT_ROOT))
@@ -109,16 +126,20 @@ def setup_cells() -> List[Any]:
 
 
 def data_loading_cells() -> List[Any]:
+    """
+    This function returns the cells that load the preprocessed matrices.
+    :return: the list of cells for data loading
+    """
     return [
         md(
             """
-            ## 2 — Load the preprocessed feature matrices
+            ## 2 - Load the preprocessed feature matrices
 
-            `load_preprocessed()` returns the two parallel matrices
-            produced by Phase 1: the **Baseline** (nutrition + tags only)
-            and the **Advanced** (Baseline + 9 engineered culinary
-            features). Both share the same train/test partition so the
-            A/B comparison is apples-to-apples.
+            load_preprocessed() gives us back the two matrices that we
+            made in Phase 1: the Baseline (just nutrition + tags) and
+            the Advanced (the Baseline plus 9 engineered culinary
+            features). They share the same train/test split so the A/B
+            comparison is fair.
             """
         ),
         code(
@@ -136,17 +157,21 @@ def data_loading_cells() -> List[Any]:
 
 
 def training_loop_cells(model_build_code: str) -> List[Any]:
-    """Standard 'train on Baseline + Advanced' loop, parameterised by model factory."""
+    """
+    This function returns the standard training loop cells, where we train the
+    model on Baseline and then on Advanced.
+    :param model_build_code: the code that defines the _build_model() factory
+    :return: the list of cells for the training loop
+    """
     return [
         md(
             """
-            ## 4 — Train on both matrices
+            ## 4 - Train on both matrices
 
-            Each matrix gets a **fresh** model instance (the factory
-            below is called once per dataset). Nothing carries over
-            between Baseline and Advanced — that's how the engineered
-            feature delta stays attributable to the additional 9 columns
-            alone.
+            For each matrix we build a fresh model from scratch (the
+            factory below gets called once per dataset). Nothing leaks
+            from Baseline to Advanced so the delta we see is really
+            only because of the 9 engineered features.
             """
         ),
         code(
@@ -170,14 +195,18 @@ def training_loop_cells(model_build_code: str) -> List[Any]:
 
 
 def confusion_matrix_cells() -> List[Any]:
+    """
+    This function returns the cells for plotting the confusion matrix on the Advanced fit.
+    :return: the list of cells
+    """
     return [
         md(
             """
-            ## 5 — Confusion matrix (Advanced fit)
+            ## 5 - Confusion matrix (Advanced fit)
 
-            Annotated heatmap of the Advanced-fit confusion matrix.
-            Rendered inline AND persisted to
-            `results/<slug>/confusion_matrix.png`.
+            An annotated heatmap of the confusion matrix from the
+            Advanced fit. We render it inline and also save it to
+            results/<slug>/confusion_matrix.png.
             """
         ),
         code(
@@ -189,7 +218,7 @@ def confusion_matrix_cells() -> List[Any]:
             ])
             fig_cm = confusion_matrix_figure(
                 cm_array,
-                title=f"{DISPLAY_NAME} — Confusion Matrix (Advanced)",
+                title=f"{DISPLAY_NAME} - Confusion Matrix (Advanced)",
             )
             save_figure(MODEL_SLUG, "confusion_matrix.png", fig_cm)
             plt.show()
@@ -199,22 +228,27 @@ def confusion_matrix_cells() -> List[Any]:
 
 
 def roc_curve_cells() -> List[Any]:
+    """
+    This function returns the cells for the ROC curve plot on the Advanced fit.
+    :return: the list of cells
+    """
     return [
         md(
             """
-            ## 6 — ROC curve + AUC (Advanced fit)
+            ## 6 - ROC curve + AUC (Advanced fit)
 
-            Generated against `predict_proba` (or `decision_function`
-            where probabilities aren't available). The AUC is the
-            ranking-quality summary independent of any threshold choice;
-            Phase 4's threshold-sweep work depends on it.
+            We use predict_proba (or decision_function if the model
+            doesn't have probabilities). The AUC tells us how well the
+            model ranks the positives over the negatives, regardless of
+            the threshold we pick. Phase 4's threshold sweep is built
+            on top of this.
             """
         ),
         code(
             """
             fig_roc, auc = roc_curve_figure(
                 y_test, adv["proba_hit"],
-                title=f"{DISPLAY_NAME} — ROC Curve (Advanced)",
+                title=f"{DISPLAY_NAME} - ROC Curve (Advanced)",
                 model_label=DISPLAY_NAME,
             )
             save_figure(MODEL_SLUG, "roc_curve.png", fig_roc)
@@ -226,15 +260,20 @@ def roc_curve_cells() -> List[Any]:
 
 
 def save_metrics_cells(extras_code: str = "{}") -> List[Any]:
+    """
+    This function returns the cells that build and write the metrics JSON payload.
+    :param extras_code: a string of python code that defines the extras dict
+    :return: the list of cells
+    """
     return [
         md(
             """
-            ## 8 — Persist the canonical metrics JSON
+            ## 8 - Persist the canonical metrics JSON
 
-            One JSON per model, written to
-            `results/<slug>/metrics.json`. Schema is defined in
-            `src.train_utils.build_metrics_payload`; the master
-            comparison notebook reads from here.
+            One JSON per model, written into
+            results/<slug>/metrics.json. The schema is defined in
+            src.train_utils.build_metrics_payload, and the master
+            comparison notebook reads from those files.
             """
         ),
         code(
@@ -259,41 +298,47 @@ def save_metrics_cells(extras_code: str = "{}") -> List[Any]:
 
 
 def summary_cells(title: str, summary_md: str) -> List[Any]:
+    """
+    This function returns the closing summary cell for a model notebook.
+    :param title: the model name to put on the summary
+    :param summary_md: the bullet list with the highlights of the run
+    :return: the list of cells
+    """
     return [
         md(
             f"""
-            ## 9 — Summary
+            ## 9 - Summary
 
             **Model:** {title}
 
             {summary_md.strip()}
 
-            Run the **master comparison notebook
-            (`08_Master_Comparison.ipynb`)** to see this model alongside
-            the other six in the side-by-side table.
+            To see this model side by side with the other six, run the
+            master comparison notebook (`08_Master_Comparison.ipynb`).
             """
         ),
     ]
 
 
-# ---------------------------------------------------------------------------
-# 01 — Logistic Regression
-# ---------------------------------------------------------------------------
+# 01 - Logistic Regression
 def build_logistic_regression_notebook() -> Path:
+    """
+    This function builds the Logistic Regression notebook.
+    :return: the path of the notebook we just wrote
+    """
     cells = [
         md(
             """
-            # 01 — Logistic Regression
+            # 01 - Logistic Regression
 
-            Logistic Regression (L2-penalised, `liblinear` solver) is
-            the **interpretable champion** of the project: signed,
-            directly-readable coefficients in IQR-units, calibrated
-            `predict_proba` for the Phase 4 threshold sweep, and the
-            converged solver that exposed the `lbfgs` non-convergence
-            bug documented in README §2.4.
+            Logistic Regression (L2 penalty, liblinear solver) is the
+            interpretable champion of the project. We get signed
+            coefficients we can read directly in IQR units, calibrated
+            predict_proba for the Phase 4 threshold sweep, and the
+            solver that finally converges (this is also the one that
+            caught the lbfgs convergence bug from README section 2.4).
 
-            All randomness is seeded from
-            `src.train_utils.RANDOM_STATE = 42`.
+            All randomness comes from src.train_utils.RANDOM_STATE = 42.
             """
         ),
     ]
@@ -302,13 +347,13 @@ def build_logistic_regression_notebook() -> Path:
     cells += [
         md(
             """
-            ## 3 — Configure the model
+            ## 3 - Configure the model
 
-            `solver='liblinear'` (coordinate descent) converges
-            reliably on this 678–687-dim sparse-binary input where
-            `lbfgs` did not. `C=1.0` is the default L2 strength;
-            `max_iter=5000` is generous head-room (liblinear converges
-            well before this on this dataset).
+            We pick solver='liblinear' (coordinate descent) because on
+            this 678-687 dim sparse-binary input it converges nicely
+            while lbfgs didn't. C=1.0 is the default L2 strength,
+            and max_iter=5000 is plenty of head-room (liblinear
+            actually converges way before that on this dataset).
             """
         ),
         code(
@@ -338,12 +383,12 @@ def build_logistic_regression_notebook() -> Path:
     cells += [
         md(
             """
-            ## 7 — Top signed coefficients
+            ## 7 - Top signed coefficients
 
-            LR is the model whose internals are directly readable. The
-            top 10 positive and top 10 negative coefficients tell the
-            "Recipe for Success / Disaster" story documented in README
-            §3.4.
+            LR is the model where we can just read the internals
+            directly. The top 10 positive and top 10 negative
+            coefficients give us the "Recipe for Success / Disaster"
+            story from README section 3.4.
             """
         ),
         code(
@@ -365,31 +410,33 @@ def build_logistic_regression_notebook() -> Path:
     cells += summary_cells(
         "Logistic Regression",
         """
-        - **Test Accuracy / F1 / AUC:** ~0.6030 / ~0.6435 / ~0.6500
-        - **Interpretable champion** — top coefficient drives the
-          "Recipe for Success" narrative in README §3.4.
-        - **Calibrated probabilities** — feeds the Phase 4 threshold
-          sweep (`phase4_advanced_tuning.py`).
+        - **Test Accuracy / F1 / AUC:** about 0.6030 / 0.6435 / 0.6500
+        - **Interpretable champion** - the top coefficient is what
+          drives the "Recipe for Success" story in README section 3.4.
+        - **Calibrated probabilities** - this is what feeds the Phase
+          4 threshold sweep (`advanced_tuning.py`).
         """
     )
     return write_nb("01_Logistic_Regression.ipynb", cells)
 
 
-# ---------------------------------------------------------------------------
-# 02 — Random Forest
-# ---------------------------------------------------------------------------
+# 02 - Random Forest
 def build_random_forest_notebook() -> Path:
+    """
+    This function builds the Random Forest notebook.
+    :return: the path of the notebook we just wrote
+    """
     cells = [
         md(
             """
-            # 02 — Random Forest
+            # 02 - Random Forest
 
-            The **predictive champion** of the project. Random Forest
-            breaks past Logistic Regression's "linear ceiling" (+1.48%
-            Acc, +2.73% F1 on Advanced) by exploiting non-linear
-            feature interactions. Critically, its feature-importance
-            ranking **inverts** the LR coefficient picture — see README
-            §3.5.
+            The predictive champion of the project. Random Forest
+            breaks past the "linear ceiling" of Logistic Regression
+            (+1.48% Acc, +2.73% F1 on Advanced) because it can pick up
+            non-linear interactions between features. What is really
+            interesting is that its feature-importance ranking inverts
+            the LR coefficient picture - see README section 3.5.
             """
         ),
     ]
@@ -398,12 +445,12 @@ def build_random_forest_notebook() -> Path:
     cells += [
         md(
             """
-            ## 3 — Configure the model
+            ## 3 - Configure the model
 
-            200 trees gives a small bump over the default 100 at
-            negligible cost; `n_jobs=-1` uses all available cores.
-            `random_state=RANDOM_STATE` propagates the 42 seed to the
-            bagging RNG.
+            200 trees gives us a small improvement over the default
+            100 for basically no cost, and n_jobs=-1 uses all the
+            cores we have. random_state=RANDOM_STATE pushes the seed
+            42 through to the bagging RNG.
             """
         ),
         code(
@@ -433,16 +480,16 @@ def build_random_forest_notebook() -> Path:
     cells += [
         md(
             """
-            ## 7 — Top-20 feature importances (the inversion story)
+            ## 7 - Top-20 feature importances (the inversion story)
 
-            The top 7 RF features are **all continuous numerics** —
-            three engineered (`avg_words_per_step`, `num_ingredients`,
-            `num_steps`) and four from the original nutrition columns.
-            This is the **opposite** of the LR coefficient picture
-            where binary tags dominated. The mechanism: L2 splits
-            credit among collinear features, but trees pick the single
-            best splitter per node and are invariant to that
-            collinearity. See README §3.5.
+            The top 7 features for RF are all continuous numerics -
+            three of them are engineered (`avg_words_per_step`,
+            `num_ingredients`, `num_steps`) and four come from the
+            original nutrition columns. This is the opposite of what
+            we saw with LR, where the binary tags were on top. The
+            reason: L2 splits the credit across collinear features,
+            but trees just pick the single best splitter at each node
+            and don't care about collinearity. See README section 3.5.
             """
         ),
         code(
@@ -460,7 +507,7 @@ def build_random_forest_notebook() -> Path:
             fig_imp, ax = plt.subplots(figsize=(9, 8))
             top.iloc[::-1].plot(kind="barh", ax=ax, color="steelblue")
             ax.set_xlabel("Feature importance (impurity reduction, Gini)")
-            ax.set_title(f"Random Forest — Top {TOP_K} Feature Importances (Advanced)")
+            ax.set_title(f"Random Forest - Top {TOP_K} Feature Importances (Advanced)")
             ax.grid(axis="x", alpha=0.3)
             fig_imp.tight_layout()
             save_figure(MODEL_SLUG, "feature_importance.png", fig_imp)
@@ -481,33 +528,37 @@ def build_random_forest_notebook() -> Path:
     cells += summary_cells(
         "Random Forest (n=200)",
         """
-        - **Test Accuracy / F1:** ~0.6178 / ~0.6708 — top scores in the
-          whole lineup.
-        - **Breaks the linear ceiling** by +1.48% Acc, +2.73% F1 vs LR.
-        - **Inverts the feature-importance ranking** — continuous
-          numerics dominate where they were near-zero in LR.
+        - **Test Accuracy / F1:** about 0.6178 / 0.6708 - the top
+          scores in the whole lineup.
+        - **Breaks the linear ceiling** by +1.48% Acc and +2.73% F1
+          over LR.
+        - **Inverts the feature-importance ranking** - the continuous
+          numerics dominate where they were near-zero on LR.
         """
     )
     return write_nb("02_Random_Forest.ipynb", cells)
 
 
-# ---------------------------------------------------------------------------
-# 03 — MLP Neural Network
-# ---------------------------------------------------------------------------
+# 03 - MLP Neural Network
 def build_mlp_notebook() -> Path:
+    """
+    This function builds the MLP Neural Network notebook (with early stopping).
+    :return: the path of the notebook we just wrote
+    """
     cells = [
         md(
             """
-            # 03 — MLP Neural Network (with early stopping)
+            # 03 - MLP Neural Network (with early stopping)
 
-            Two-hidden-layer (128, 64) MLP. The **unregularised**
-            version of this model drove training loss to ~0.009 in 64
-            epochs while test accuracy fell BELOW Logistic Regression —
-            a textbook overfitting signature. This notebook trains the
-            **regularised** version with validation-based early
-            stopping (`early_stopping=True`, `validation_fraction=0.15`,
-            `n_iter_no_change=10`), which recovers test performance to
-            match LR within noise (see README §3.6).
+            Two-hidden-layer (128, 64) MLP. The non-regularised
+            version of this exact model pushed training loss down to
+            about 0.009 in 64 epochs while test accuracy actually
+            dropped BELOW Logistic Regression - a textbook overfitting
+            signature. In this notebook we train the regularised
+            version with early stopping based on validation
+            (`early_stopping=True`, `validation_fraction=0.15`,
+            `n_iter_no_change=10`), and we recover test performance
+            back to about LR within noise (see README section 3.6).
             """
         ),
     ]
@@ -516,13 +567,14 @@ def build_mlp_notebook() -> Path:
     cells += [
         md(
             """
-            ## 3 — Configure the model
+            ## 3 - Configure the model
 
-            Validation-based early stopping holds out 15% of `X_train`
-            internally (NOT our test split — leakage-free), tracks
-            validation accuracy each epoch, and restores the weights
-            to the best-validation epoch on `fit()` completion.
-            `verbose=True` exposes the per-epoch loss/validation log.
+            Validation-based early stopping holds out 15% of X_train
+            internally (NOT our test split - so it's leakage-free),
+            tracks the validation accuracy each epoch, and restores
+            the weights to the best-validation epoch when fit()
+            finishes. verbose=True gives us the per-epoch loss /
+            validation log.
             """
         ),
         code(
@@ -555,13 +607,13 @@ def build_mlp_notebook() -> Path:
     cells += [
         md(
             """
-            ## 7 — Training-loss / validation-error overlay
+            ## 7 - Training-loss / validation-error overlay
 
-            Training loss (orange) descends smoothly toward zero;
-            validation error (green) flattens and starts climbing
-            slightly — the classic overfitting signature. The dashed
-            vertical line marks the epoch sklearn restored the
-            network's weights to (the epoch with the best validation
+            The training loss (orange) goes smoothly down towards zero,
+            and the validation error (green) flattens out and starts
+            climbing a bit - the classic overfitting picture. The
+            dashed vertical line is the epoch where sklearn restored
+            the weights back to (the one with the best validation
             score).
             """
         ),
@@ -579,12 +631,12 @@ def build_mlp_notebook() -> Path:
             ax.plot(epochs, loss, lw=2.0, color="darkorange",
                     label="Training loss (log-loss)")
             ax.plot(epochs, val_err, lw=2.0, color="seagreen",
-                    label="Validation error (1 − accuracy)")
+                    label="Validation error (1 - accuracy)")
             ax.axvline(x=best_epoch, color="dimgray", linestyle="--", lw=1.5,
                        label=f"Restored epoch = {best_epoch} (best val acc = {best_val_acc:.4f})")
             ax.set_xlabel("Epoch")
             ax.set_ylabel("Loss / Error")
-            ax.set_title(f"MLP — Training Loss vs Validation Error ({len(loss)} epochs)")
+            ax.set_title(f"MLP - Training Loss vs Validation Error ({len(loss)} epochs)")
             ax.grid(alpha=0.3)
             ax.legend(loc="best")
             fig_loss.tight_layout()
@@ -606,13 +658,14 @@ def build_mlp_notebook() -> Path:
         ),
         md(
             """
-            ## 7.5 — Early-stopping ablation (vs the prior overfit run)
+            ## 7.5 - Early-stopping ablation (vs the prior overfit run)
 
-            Before early stopping was enabled, the same architecture
-            ran for 64 epochs to training loss 0.0087 and test accuracy
-            0.5816 (below LR). With early stopping, the network
-            restores to the best-validation epoch and recovers to ~0.61
-            test accuracy — matching LR within noise. See README §3.6.
+            Before we turned on early stopping, the same architecture
+            ran for 64 epochs with training loss 0.0087 and test
+            accuracy 0.5816 (below LR). After we turn it on, the
+            network restores back to the best-validation epoch and
+            climbs back up to about 0.61 test accuracy - matching LR
+            within noise. See README section 3.6.
             """
         ),
         code(
@@ -631,13 +684,13 @@ def build_mlp_notebook() -> Path:
             display(pd.DataFrame({
                 "Previous (no early stopping)": [
                     f"{MLP_OVERFITTED_PRIOR['epochs']} epochs",
-                    f"loss → {MLP_OVERFITTED_PRIOR['final_loss']:.4f}",
+                    f"loss -> {MLP_OVERFITTED_PRIOR['final_loss']:.4f}",
                     f"{MLP_OVERFITTED_PRIOR['advanced_acc']:.4f}",
                     f"{MLP_OVERFITTED_PRIOR['advanced_f1']:.4f}",
                 ],
                 "Current (early stopping)": [
                     f"{diagnostics['epochs_total']} epochs (restored at {best_epoch})",
-                    f"loss → {diagnostics['training_loss_at_final']:.4f}",
+                    f"loss -> {diagnostics['training_loss_at_final']:.4f}",
                     f"{now['accuracy']:.4f} ({d_acc:+.4f})",
                     f"{now['f1']:.4f} ({d_f1:+.4f})",
                 ],
@@ -655,30 +708,34 @@ def build_mlp_notebook() -> Path:
     cells += summary_cells(
         "MLP (128, 64) + early stopping",
         """
-        - **Test Accuracy / F1:** ~0.6066 / ~0.6477 — matches LR
-          within noise after early stopping.
-        - **Without early stopping** the same architecture overfit
-          (Acc 0.5816, below LR) — see the ablation table in §7.5.
-        - **Lesson:** capacity is a liability without matching
-          regularisation. README §4 Lesson #6.
+        - **Test Accuracy / F1:** about 0.6066 / 0.6477 - matches LR
+          within noise once we turn on early stopping.
+        - **Without early stopping** the exact same architecture
+          overfit (Acc 0.5816, below LR) - see the ablation table in
+          section 7.5.
+        - **The lesson:** more capacity is actually a liability if
+          we don't add the matching regularisation. README section 4
+          Lesson #6.
         """
     )
     return write_nb("03_MLP_Neural_Network.ipynb", cells)
 
 
-# ---------------------------------------------------------------------------
-# 04 — Perceptron
-# ---------------------------------------------------------------------------
+# 04 - Perceptron
 def build_perceptron_notebook() -> Path:
+    """
+    This function builds the Perceptron notebook.
+    :return: the path of the notebook we just wrote
+    """
     cells = [
         md(
             """
-            # 04 — Perceptron
+            # 04 - Perceptron
 
-            The weakest linear baseline in the lineup. Included as a
-            sanity-check floor against which the more sophisticated
-            models are measured. Approaches its Bayes-error rate, then
-            plateaus.
+            The weakest linear baseline in the lineup. We keep it in
+            the project as a sanity-check floor that the more
+            sophisticated models can be measured against. It gets
+            close to its Bayes-error rate and then just plateaus.
             """
         ),
     ]
@@ -687,11 +744,11 @@ def build_perceptron_notebook() -> Path:
     cells += [
         md(
             """
-            ## 3 — Configure the model
+            ## 3 - Configure the model
 
-            Default Perceptron with `random_state=RANDOM_STATE` for
-            the SGD shuffling RNG; `max_iter=1000` and `tol=1e-3`
-            match the sklearn defaults.
+            Default Perceptron with random_state=RANDOM_STATE for the
+            SGD shuffle, max_iter=1000 and tol=1e-3 - these match the
+            sklearn defaults.
             """
         ),
         code(
@@ -721,30 +778,33 @@ def build_perceptron_notebook() -> Path:
     cells += summary_cells(
         "Perceptron",
         """
-        - **Test Accuracy / F1:** ~0.5457 / ~0.5696 — the weakest
+        - **Test Accuracy / F1:** about 0.5457 / 0.5696 - the weakest
           model in the lineup.
-        - **Nearly symmetric errors** (FP ≈ FN), in contrast to
-          AdaBoost's strong asymmetry.
+        - **Errors are pretty symmetric** (FP is about FN), the
+          opposite of AdaBoost which is very asymmetric.
         """
     )
     return write_nb("04_Perceptron.ipynb", cells)
 
 
-# ---------------------------------------------------------------------------
-# 05 — AdaBoost
-# ---------------------------------------------------------------------------
+# 05 - AdaBoost
 def build_adaboost_notebook() -> Path:
+    """
+    This function builds the AdaBoost notebook.
+    :return: the path of the notebook we just wrote
+    """
     cells = [
         md(
             """
-            # 05 — AdaBoost
+            # 05 - AdaBoost
 
-            Boosted decision stumps — the mildly-non-linear member of
-            the linear lineup. Records the strongest class asymmetry of
-            any model in the study (~0.575 FP-rate vs 0.257 FN-rate at
-            default threshold), making it a useful counter-example to
-            the symmetric-errors story Logistic Regression tells in
-            Phase 4's threshold sweep.
+            Boosted decision stumps - the mildly non-linear member of
+            the linear lineup. It has the strongest class asymmetry
+            of all the models in the study (about 0.575 FP-rate vs
+            0.257 FN-rate at the default threshold), so it makes a
+            nice counter-example to the symmetric-errors story that
+            Logistic Regression tells us in the Phase 4 threshold
+            sweep.
             """
         ),
     ]
@@ -753,10 +813,10 @@ def build_adaboost_notebook() -> Path:
     cells += [
         md(
             """
-            ## 3 — Configure the model
+            ## 3 - Configure the model
 
-            100 boosting iterations; `random_state=RANDOM_STATE` seeds
-            the bootstrap sampling.
+            100 boosting iterations, and random_state=RANDOM_STATE
+            seeds the bootstrap sampling.
             """
         ),
         code(
@@ -785,34 +845,36 @@ def build_adaboost_notebook() -> Path:
     cells += summary_cells(
         "AdaBoost (n=100)",
         """
-        - **Test Accuracy / F1:** ~0.5967 / ~0.6518.
-        - **Strongest class asymmetry** in the lineup — FP-rate 0.575
-          vs FN-rate 0.257. The engineered features re-shape its
-          errors rather than reducing them (ΔF1 = -0.0103).
+        - **Test Accuracy / F1:** about 0.5967 / 0.6518.
+        - **Strongest class asymmetry** of the lineup - FP-rate 0.575
+          vs FN-rate 0.257. The engineered features actually re-shape
+          the errors instead of reducing them (Delta F1 = -0.0103).
         """
     )
     return write_nb("05_AdaBoost.ipynb", cells)
 
 
-# ---------------------------------------------------------------------------
-# 06 — PCA + KNN
-# ---------------------------------------------------------------------------
+# 06 - PCA + KNN
 def build_pca_knn_notebook() -> Path:
+    """
+    This function builds the PCA + KNN notebook (the cautionary tale).
+    :return: the path of the notebook we just wrote
+    """
     cells = [
         md(
             """
-            # 06 — PCA(0.90) + KNN  (the cautionary tale)
+            # 06 - PCA(0.90) + KNN  (the cautionary tale)
 
-            This notebook trains the **original** PCA + KNN pipeline
-            that scored only ~0.515 accuracy. The reason will be
-            visible in the cell that prints `pca.n_components_`: PCA
-            retains exactly **1 component** for 90% variance, because
-            the outlier-dominated nutrition columns hijack the
-            projection. KNN is then asked to do similarity search on a
-            1-D projection of the data. See README §4 Lesson #5.
+            This notebook trains the original PCA + KNN pipeline that
+            scored only about 0.515 accuracy. The reason is going to
+            show up in the cell that prints pca.n_components_: PCA
+            keeps exactly 1 component for 90% variance, because the
+            nutrition columns with their big outliers hijack the
+            projection. After that KNN is doing similarity search on
+            a 1-D projection of the data. See README section 4 Lesson
+            #5.
 
-            The **fix** for this is in
-            `07_PCA_KNN_Improved.ipynb`.
+            The fix for this is in 07_PCA_KNN_Improved.ipynb.
             """
         ),
     ]
@@ -821,13 +883,13 @@ def build_pca_knn_notebook() -> Path:
     cells += [
         md(
             """
-            ## 3 — Configure the pipeline
+            ## 3 - Configure the pipeline
 
-            `PCA(n_components=0.90)` keeps the smallest set of
-            principal components that together retain 90% of the input
-            variance. `KNN(n_neighbors=5)` operates in that reduced
-            space. Both stages share the same `random_state`. KNN
-            itself is deterministic (no random_state to set).
+            PCA(n_components=0.90) keeps the smallest set of principal
+            components that together cover 90% of the input variance.
+            KNN(n_neighbors=5) then works in that reduced space. Both
+            stages share the same random_state. KNN by itself is
+            deterministic (no random_state for it).
             """
         ),
         code(
@@ -857,11 +919,11 @@ def build_pca_knn_notebook() -> Path:
         ),
         md(
             """
-            ## 4 — Train and capture `pca.n_components_`
+            ## 4 - Train and capture pca.n_components_
 
-            We extract the actual number of components PCA retained.
-            On this dataset it's exactly **1** — see the diagnostic
-            below.
+            Here we pull out the real number of components that PCA
+            actually kept. On this dataset it's exactly 1 - the
+            diagnostic is in the next cell.
             """
         ),
         code(
@@ -901,34 +963,38 @@ def build_pca_knn_notebook() -> Path:
     cells += summary_cells(
         "PCA(0.90) + KNN  (the cautionary tale)",
         """
-        - **Test Accuracy / F1:** ~0.5133 / ~0.5578 — barely above the
-          0.534 majority-class rate.
-        - **PCA retained 1 component** — the diagnostic that motivated
-          `07_PCA_KNN_Improved.ipynb`.
-        - **Lesson:** capture structural diagnostics before reasoning
-          from theory alone (README §4 Lesson #5).
+        - **Test Accuracy / F1:** about 0.5133 / 0.5578 - barely
+          above the 0.534 majority-class rate.
+        - **PCA kept just 1 component** - the diagnostic that pushed
+          us to write 07_PCA_KNN_Improved.ipynb.
+        - **The lesson:** we should grab structural diagnostics
+          before reasoning only from theory (README section 4 Lesson
+          #5).
         """
     )
     return write_nb("06_PCA_KNN.ipynb", cells)
 
 
-# ---------------------------------------------------------------------------
-# 07 — PCA + KNN (Improved)
-# ---------------------------------------------------------------------------
+# 07 - PCA + KNN (Improved)
 def build_pca_knn_improved_notebook() -> Path:
+    """
+    This function builds the PCA + KNN Improved notebook - the algorithmic fix.
+    :return: the path of the notebook we just wrote
+    """
     cells = [
         md(
             """
-            # 07 — PCA(0.90) + KNN (Improved)  — the algorithmic fix
+            # 07 - PCA(0.90) + KNN (Improved)  - the algorithmic fix
 
-            Diagnostic-driven fix for the 1-component collapse
-            documented in `06_PCA_KNN.ipynb`. A `ColumnTransformer`
+            This is the diagnostic-driven fix for the 1-component
+            collapse from 06_PCA_KNN.ipynb. A ColumnTransformer
             explicitly drops the four nutrition columns
-            (`calories, protein, fat, sodium`) BEFORE PCA, so the
-            projection can't be hijacked by their outlier-dominated
-            variance. The recovery is **dramatic on dimensionality**
-            (1 → ~200 components) and **meaningful on accuracy** (+4.5
-            to +5 percentage points). See README §4 Lesson #5.
+            (calories, protein, fat, sodium) BEFORE PCA, so the
+            projection cannot be hijacked by their outlier-dominated
+            variance anymore. The recovery is dramatic on the
+            dimensionality side (1 -> about 200 components) and
+            meaningful on the accuracy side (+4.5 to +5 pp). See
+            README section 4 Lesson #5.
             """
         ),
     ]
@@ -937,12 +1003,12 @@ def build_pca_knn_improved_notebook() -> Path:
     cells += [
         md(
             """
-            ## 3 — Configure the improved pipeline
+            ## 3 - Configure the improved pipeline
 
-            The new top-of-pipeline step is a `ColumnTransformer`
+            The new top step of the pipeline is a ColumnTransformer
             whose only job is to DROP the four nutrition columns.
-            Everything downstream (PCA → KNN) is identical to
-            `06_PCA_KNN.ipynb`.
+            Everything after it (PCA -> KNN) is identical to
+            06_PCA_KNN.ipynb.
             """
         ),
         code(
@@ -981,11 +1047,11 @@ def build_pca_knn_improved_notebook() -> Path:
         ),
         md(
             """
-            ## 4 — Train and capture `pca.n_components_` (before/after fix)
+            ## 4 - Train and capture pca.n_components_ (before/after the fix)
 
-            With the four nutrition columns out of the way, PCA's
-            component count for 90% variance should jump from **1**
-            (broken) to a few hundred (healthy).
+            With the four nutrition columns out of the way, the
+            number of components PCA needs for 90% variance jumps
+            from 1 (broken) to a few hundred (healthy).
             """
         ),
         code(
@@ -1018,7 +1084,7 @@ def build_pca_knn_improved_notebook() -> Path:
             print_delta(per_ds_results)
             display(pd.DataFrame({
                 "components_retained": pca_components_per_dataset,
-                "expansion_vs_original": {k: f"{v}×" for k, v in pca_components_per_dataset.items()},
+                "expansion_vs_original": {k: f"{v}x" for k, v in pca_components_per_dataset.items()},
             }))
             """
         ),
@@ -1039,41 +1105,45 @@ def build_pca_knn_improved_notebook() -> Path:
     cells += summary_cells(
         "PCA(0.90) + KNN (Improved)",
         """
-        - **Test Accuracy / F1:** ~0.5630 / ~0.5904 — a +4.97 pp Acc
-          and +3.26 pp F1 recovery over the unfixed version on
-          Advanced.
-        - **Search space expanded 182× / 203×** (1 → 182 components
-          on Advanced; 1 → 203 on Baseline).
-        - **Partial rescue:** still ~4 pp below LR. The residual gap
-          is the textbook sparse-binary distance penalty (the original
-          theoretical objection). README §4 Lesson #5.
+        - **Test Accuracy / F1:** about 0.5630 / 0.5904 - a +4.97 pp
+          on Acc and +3.26 pp on F1 recovery over the unfixed version
+          on Advanced.
+        - **Search space grew 182x / 203x** (1 -> 182 components on
+          Advanced, 1 -> 203 on Baseline).
+        - **Only a partial rescue:** still about 4 pp under LR. The
+          rest of the gap is the textbook sparse-binary distance
+          penalty (which was the original theoretical objection).
+          README section 4 Lesson #5.
         """
     )
     return write_nb("07_PCA_KNN_Improved.ipynb", cells)
 
 
-# ---------------------------------------------------------------------------
-# 08 — Master Comparison
-# ---------------------------------------------------------------------------
+# 08 - Master Comparison
 def build_master_notebook() -> Path:
+    """
+    This function builds the master comparison notebook that puts all the
+    models side by side.
+    :return: the path of the notebook we just wrote
+    """
     cells = [
         md(
             """
-            # 08 — Master Comparison
+            # 08 - Master Comparison
 
-            **The portfolio's headline table.** This notebook trains
-            nothing. It reads each model's
-            `results/<slug>/metrics.json`, assembles the side-by-side
-            Pandas summary, and surfaces the cross-model verdict (does
-            the non-linear model break the linear ceiling?).
+            The headline table of the portfolio. This notebook does
+            not train anything. It reads each model's
+            results/<slug>/metrics.json, builds the side-by-side
+            pandas summary, and shows the cross-model verdict (does
+            the non-linear model break the linear ceiling or not?).
 
             Run this AFTER the seven model notebooks (or the seven
-            `train_*.py` scripts) have populated `results/`.
+            train_*.py scripts) finished and filled results/.
             """
         ),
         md(
             """
-            ## 1 — Setup
+            ## 1 - Setup
             """
         ),
         code(
@@ -1105,10 +1175,10 @@ def build_master_notebook() -> Path:
         ),
         md(
             """
-            ## 2 — Discover what's in `results/`
+            ## 2 - Discover what's inside results/
 
-            We list every model subdirectory under `results/` and
-            confirm that the canonical 7-model lineup is present.
+            Here we list every model sub-directory under results/ and
+            check that the canonical 7-model lineup is all there.
             """
         ),
         code(
@@ -1125,11 +1195,12 @@ def build_master_notebook() -> Path:
         ),
         md(
             """
-            ## 3 — The headline summary table
+            ## 3 - The headline summary table
 
-            Each row is one model; columns are accuracy and F1 on the
-            Baseline and Advanced matrices, plus the Δ between them.
-            Positive Δ means the engineered culinary features helped.
+            Each row is one model, and the columns are accuracy and
+            F1 on Baseline and on Advanced, plus the Delta between
+            them. A positive Delta means the engineered culinary
+            features helped that model.
             """
         ),
         code(
@@ -1162,11 +1233,11 @@ def build_master_notebook() -> Path:
         ),
         md(
             """
-            ## 4 — Cross-model verdict (linear baseline vs non-linear)
+            ## 4 - Cross-model verdict (linear baseline vs non-linear)
 
             LR is the calibrated linear baseline. Random Forest and
             MLP are the non-linear contenders. The "meaningful gain"
-            threshold is 1 percentage point on either Acc or F1.
+            we set is 1 percentage point on either Acc or F1.
             """
         ),
         code(
@@ -1184,13 +1255,13 @@ def build_master_notebook() -> Path:
                 d_acc = ad["accuracy"] - lr_a["accuracy"]
                 d_f1 = ad["f1"] - lr_a["f1"]
                 if d_acc >= MEANINGFUL and d_f1 >= MEANINGFUL:
-                    verdict = "✅ BREAKS the linear ceiling on both metrics"
+                    verdict = "BREAKS the linear ceiling on both metrics"
                 elif d_acc >= MEANINGFUL or d_f1 >= MEANINGFUL:
-                    verdict = "🟡 PARTIAL gain (one metric only)"
+                    verdict = "PARTIAL gain (one metric only)"
                 elif d_acc <= -MEANINGFUL or d_f1 <= -MEANINGFUL:
-                    verdict = "❌ UNDERPERFORMS the linear baseline"
+                    verdict = "UNDERPERFORMS the linear baseline"
                 else:
-                    verdict = "⚖️ PLATEAUS within noise of LR"
+                    verdict = "PLATEAUS within noise of LR"
                 return {
                     "Model": model_name,
                     "Acc (Advanced)": ad["accuracy"],
@@ -1215,12 +1286,13 @@ def build_master_notebook() -> Path:
         ),
         md(
             """
-            ## 5 — The PCA + KNN before/after story
+            ## 5 - The PCA + KNN before/after story
 
-            The most diagnostic-driven result in the project: dropping
-            the four nutrition columns before PCA expands the retained
-            search space from 1 component to ~200 components and lifts
-            KNN accuracy by ~5 percentage points. README §4 Lesson #5.
+            This is the most diagnostic-driven result in the project:
+            dropping the four nutrition columns before PCA grows the
+            retained search space from 1 component to about 200, and
+            lifts KNN accuracy by about 5 percentage points. README
+            section 4 Lesson #5.
             """
         ),
         code(
@@ -1233,36 +1305,36 @@ def build_master_notebook() -> Path:
                 pca_imp  = improved["extras"]["pca_components_retained"]
 
                 cmp = pd.DataFrame({
-                    "Original — components": pca_orig,
-                    "Improved — components": pca_imp,
-                    "Original — Acc": {ds: orig["datasets"][ds]["accuracy"] for ds in pca_orig},
-                    "Improved — Acc": {ds: improved["datasets"][ds]["accuracy"] for ds in pca_imp},
+                    "Original - components": pca_orig,
+                    "Improved - components": pca_imp,
+                    "Original - Acc": {ds: orig["datasets"][ds]["accuracy"] for ds in pca_orig},
+                    "Improved - Acc": {ds: improved["datasets"][ds]["accuracy"] for ds in pca_imp},
                     "Δ Acc": {ds: improved["datasets"][ds]["accuracy"] - orig["datasets"][ds]["accuracy"] for ds in pca_imp},
                 })
                 display(cmp.style.format({
-                    "Original — Acc": "{:.4f}",
-                    "Improved — Acc": "{:.4f}",
+                    "Original - Acc": "{:.4f}",
+                    "Improved - Acc": "{:.4f}",
                     "Δ Acc": "{:+.4f}",
                 }))
             """
         ),
         md(
             """
-            ## 6 — Embedded plot gallery
+            ## 6 - Embedded plot gallery
 
-            Each model's headline plot, side-by-side. Images come from
-            `results/<slug>/`, so they reflect whatever was last
-            written by the model's notebook (or the matching
-            `train_<model>.py` script).
+            The headline plot of each model, side by side. The images
+            come from results/<slug>/ so they show whatever was last
+            written by the model's notebook (or by the matching
+            train_<model>.py script).
             """
         ),
         code(
             """
             plot_gallery = [
-                ("Logistic Regression — Confusion Matrix", "logistic_regression/confusion_matrix.png"),
-                ("Logistic Regression — ROC Curve",        "logistic_regression/roc_curve.png"),
-                ("Random Forest — Feature Importance",     "random_forest/feature_importance.png"),
-                ("MLP — Loss Curve + Validation Overlay",  "mlp/loss_curve.png"),
+                ("Logistic Regression - Confusion Matrix", "logistic_regression/confusion_matrix.png"),
+                ("Logistic Regression - ROC Curve",        "logistic_regression/roc_curve.png"),
+                ("Random Forest - Feature Importance",     "random_forest/feature_importance.png"),
+                ("MLP - Loss Curve + Validation Overlay",  "mlp/loss_curve.png"),
             ]
 
             for caption, rel_path in plot_gallery:
@@ -1276,29 +1348,33 @@ def build_master_notebook() -> Path:
         ),
         md(
             """
-            ## 7 — Final verdict (one-liner per model class)
+            ## 7 - Final verdict (one-liner per model class)
 
             - **Linear interpretable champion:** Logistic Regression
               (calibrated probabilities, signed coefficients).
-            - **Predictive champion:** Random Forest — breaks the
-              linear ceiling +1.48% Acc / +2.73% F1.
-            - **MLP:** matches LR within noise after early stopping;
-              capacity ≠ accuracy on this dataset.
-            - **KNN (cautionary tale → algorithmic fix):** the
-              diagnostic-driven `Improved` variant lifts accuracy +5
-              pp by dropping outlier-dominated columns before PCA.
+            - **Predictive champion:** Random Forest - it breaks the
+              linear ceiling by +1.48% Acc / +2.73% F1.
+            - **MLP:** matches LR within noise once we add early
+              stopping. More capacity does not equal more accuracy on
+              this dataset.
+            - **KNN (cautionary tale -> algorithmic fix):** the
+              diagnostic-driven Improved variant lifts accuracy by
+              about +5 pp just by dropping the outlier-dominated
+              columns before PCA.
 
-            See `README.md` for the full narrative.
+            For the full narrative see README.md.
             """
         ),
     ]
     return write_nb("08_Master_Comparison.ipynb", cells)
 
 
-# ---------------------------------------------------------------------------
 # Entry point
-# ---------------------------------------------------------------------------
 def main() -> None:
+    """
+    The main function - here we just call every notebook builder one after the
+    other and print the list of files we wrote.
+    """
     paths = [
         build_logistic_regression_notebook(),
         build_random_forest_notebook(),

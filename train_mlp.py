@@ -1,15 +1,15 @@
 """
-Train and evaluate the MLPClassifier with validation-based early stopping.
+This script trains and evaluates the MLPClassifier with validation based early stopping.
 
-Outputs (written to `results/mlp/`):
-    - metrics.json                       (extras: early-stopping diagnostics)
+What we save in `results/mlp/`:
+    - metrics.json (the extras has the early stopping diagnostics)
     - predictions_baseline.npy
     - predictions_advanced.npy
     - confusion_matrix.png
     - roc_curve.png
-    - loss_curve.png                     training loss + validation error overlay,
-                                          with dashed vertical line at the restored
-                                          best-validation epoch.
+    - loss_curve.png  the training loss with the validation error on top,
+                       and a dashed vertical line where we restored the
+                       best validation epoch.
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ MODEL_CONFIG = {
     "random_state":        RANDOM_STATE,
 }
 
-# Prior unregularised run (no early stopping) — for the before/after ablation.
+# the previous run without regularization and without early stopping, we keep it for the before/after comparison
 MLP_OVERFITTED_PRIOR = {
     "epochs":       64,
     "final_loss":   0.0087,
@@ -62,12 +62,23 @@ MLP_OVERFITTED_PRIOR = {
 
 
 def _build_model() -> MLPClassifier:
+    """
+    Here we just create the MLP classifier with our config
+    :return: the MLP model object
+    """
     return MLPClassifier(**MODEL_CONFIG)
 
 
 def _build_diagnostics(mlp: MLPClassifier) -> Dict[str, Any]:
+    """
+    This function builds the early stopping diagnostics dict from the trained MLP
+    it tells us the total epochs, the best validation epoch and stuff like that
+    :param mlp: the trained MLP model
+    :return: a dictionary of all the diagnostic values we want to save
+    """
     loss = list(mlp.loss_curve_)
     val_scores = list(mlp.validation_scores_)
+    # finding the index of the best validation score (0 based)
     best_epoch_0idx = int(np.argmax(val_scores))
     return {
         "epochs_total":             len(loss),
@@ -82,10 +93,18 @@ def _build_diagnostics(mlp: MLPClassifier) -> Dict[str, Any]:
 
 
 def _loss_curve_figure(mlp: MLPClassifier):
+    """
+    Here we draw the loss curve plot, the training loss together with the validation error.
+    we also add a dashed line where the best validation epoch is (the one we restored)
+    :param mlp: the trained MLP model
+    :return: the matplotlib figure of the plot
+    """
     loss = np.asarray(mlp.loss_curve_)
     val_scores = np.asarray(mlp.validation_scores_)
+    # the validation error is 1 minus the validation accuracy
     val_err = 1.0 - val_scores
     epochs = np.arange(1, len(loss) + 1)
+    # finding the best epoch (1 based for the plot) and the best validation accuracy
     best_epoch = int(np.argmax(val_scores)) + 1
     best_val_acc = float(val_scores.max())
 
@@ -94,6 +113,7 @@ def _loss_curve_figure(mlp: MLPClassifier):
             label="Training loss (log-loss)")
     ax.plot(epochs, val_err, lw=2.0, color="seagreen",
             label="Validation error (1 − accuracy)")
+    # the dashed vertical line for marking the restored best epoch
     ax.axvline(
         x=best_epoch, color="dimgray", linestyle="--", lw=1.5,
         label=f"Restored epoch = {best_epoch} "
@@ -112,14 +132,21 @@ def _loss_curve_figure(mlp: MLPClassifier):
 
 
 def main() -> None:
+    """
+    The main function that runs the whole training pipeline for the MLP model.
+    here we load the data, train on each dataset, build the diagnostics, save the plots,
+    print the ablation against the previous overfit run and write the final metrics.json
+    """
     print("=" * 72)
     print(f"  TRAIN — {DISPLAY_NAME}   (random_state = {RANDOM_STATE})")
     print("=" * 72)
 
+    # loading the preprocessed datasets and the labels
     datasets, y_train, y_test = load_preprocessed()
     per_ds_results: Dict[str, Dict[str, Any]] = {}
     advanced_mlp = None
 
+    # training on each dataset (Baseline and Advanced) one by one
     for ds_name in DATASETS:
         X_train, X_test = datasets[ds_name]
         model = _build_model()
@@ -129,15 +156,17 @@ def main() -> None:
         print_dataset_block(ds_name, X_train.shape, result)
         save_predictions(MODEL_SLUG, ds_name, result["y_pred"])
 
+        # keep the Advanced model since we need it for the diagnostics and the loss curve
         if ds_name == "Advanced":
             advanced_mlp = result["model"]
 
     print_delta(per_ds_results)
 
     assert advanced_mlp is not None
+    # building the early stopping diagnostics for the Advanced model
     diagnostics = _build_diagnostics(advanced_mlp)
 
-    # --- Plots (Advanced fit) --------------------------------------------
+    # the plots for the Advanced fit
     adv = per_ds_results["Advanced"]
     cm_array = np.array([
         [adv["confusion_matrix"]["tn"], adv["confusion_matrix"]["fp"]],
@@ -147,6 +176,7 @@ def main() -> None:
     save_figure(MODEL_SLUG, "confusion_matrix.png", fig_cm)
     plt.close(fig_cm)
 
+    # the ROC curve for the Advanced fit
     fig_roc, auc = roc_curve_figure(
         y_test, adv["proba_hit"],
         title=f"{DISPLAY_NAME} — ROC Curve (Advanced)",
@@ -155,10 +185,12 @@ def main() -> None:
     save_figure(MODEL_SLUG, "roc_curve.png", fig_roc)
     plt.close(fig_roc)
 
+    # the loss curve plot
     fig_loss = _loss_curve_figure(advanced_mlp)
     save_figure(MODEL_SLUG, "loss_curve.png", fig_loss)
     plt.close(fig_loss)
 
+    # printing the diagnostics nicely
     print("\n" + "=" * 72)
     print("  EARLY-STOPPING DIAGNOSTICS (Advanced fit)")
     print("=" * 72)
@@ -168,9 +200,10 @@ def main() -> None:
         else:
             print(f"  {k:<28}: {v}")
 
-    # --- Ablation vs the historical overfit run --------------------------
+    # the ablation against the previous overfit MLP run
     prior = MLP_OVERFITTED_PRIOR
     now = per_ds_results["Advanced"]
+    # the delta of accuracy and f1 between current run and the previous one
     d_acc = now["accuracy"] - prior["advanced_acc"]
     d_f1 = now["f1"] - prior["advanced_f1"]
     print("\n" + "=" * 72)
@@ -183,7 +216,7 @@ def main() -> None:
     print(f"     Acc {now['accuracy']:.4f} ({d_acc:+.4f})   "
           f"F1 {now['f1']:.4f} ({d_f1:+.4f})")
 
-    # --- Canonical JSON --------------------------------------------------
+    # finally we build the metrics payload (canonical json) and save it
     payload = build_metrics_payload(
         model_name=MODEL_NAME,
         display_name=DISPLAY_NAME,

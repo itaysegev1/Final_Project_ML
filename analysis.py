@@ -1,41 +1,16 @@
 """
-Phase 3 — Interpretation & Confidence Analysis
-==============================================
+This script is Phase 3 of the project - the interpretation and confidence analysis.
+We fit one LogisticRegression on the Advanced matrix from Phase 1 and then we open
+it up in three ways: top-K signed coefficients, predict_proba confidence buckets
+on the test set, and two PNGs (confusion matrix + ROC).
 
-A single interpretable LogisticRegression is fit on the *Advanced* matrix
-from Phase 1, then dissected three ways:
+We use LogisticRegression because Phase 2 showed it was the best balanced model,
+and its coefficients are directly readable on the RobustScaled space - a +1 IQR
+move in a feature shifts the log-odds by exactly the coefficient.
 
-    1. Feature importance — top 15 positive (push toward Hit) and top 15
-       negative (push toward Miss) signed coefficients, with explicit
-       flagging of any engineered culinary feature that survives into the
-       top lists.
-
-    2. Confidence analysis — `predict_proba` on the held-out test set, with
-       the 5 most-confident Hits, 5 most-confident Misses, and 5 most-
-       borderline cases (|p − 0.5| smallest). Each row is annotated with
-       the true label and whether the prediction was correct, so the
-       user can do qualitative culinary inspection of the failures.
-
-    3. Visualizations — two PNGs at ~200 dpi:
-           * `lr_confusion_matrix.png` — annotated confusion-matrix heatmap.
-           * `lr_roc_curve.png` — ROC curve with AUC.
-
-Why LogisticRegression?
------------------------
-Phase 2 showed it is the best-balanced classifier on this dataset (best
-accuracy AND positive Δ from the engineered features), and its coefficients
-are directly interpretable on the RobustScaled feature space (one-standard-
-IQR change in the feature shifts the log-odds by exactly the coefficient).
-That makes it the natural single model for an interpretability chapter.
-
-A note on aligning predictions back to recipe titles
-----------------------------------------------------
-Phase 0 strips ``title`` from X before the train/test split, so the model
-matrix carries no human-readable labels. We re-derive the merged frame here
-solely to recover ``title`` aligned by the same RangeIndex Phase 0 uses
-internally (``clean_and_binarize`` resets the index to 0..N-1; the split
-preserves that index). Re-running the merge is cheap and keeps the upstream
-APIs stable.
+About the titles - Phase 0 drops the title column before splitting, so we re-merge
+the raw frames here just to recover the title series aligned to the same RangeIndex.
+The re-merge is cheap and it keeps the upstream API stable.
 """
 
 from __future__ import annotations
@@ -43,7 +18,7 @@ from __future__ import annotations
 from typing import Iterable
 
 import matplotlib
-matplotlib.use("Agg")              # save PNGs without a display backend
+matplotlib.use("Agg")              # so we can save PNGs without a display backend
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -57,42 +32,42 @@ from sklearn.metrics import (
     roc_curve,
 )
 
-from src.phase0_data_foundation import (
+from src.data_foundation import (
     CulinaryFeatureExtractor,
     clean_and_binarize,
     load_binary_matrix,
     load_recipe_text,
     merge_datasets,
 )
-from src.phase1_preprocessing import build_preprocessed_datasets
+from src.preprocessing import build_preprocessed_datasets
 
 
 from src._constants import RANDOM_STATE  # single source of truth, see src/_constants.py
-TOP_K = 15                          # top-N coefficients per direction
-TOP_CONFIDENCE = 5                  # rows per confidence bucket
-TITLE_WIDTH = 70                    # truncate titles for tidy printing
+TOP_K = 15                          # how many top coefficients per direction
+TOP_CONFIDENCE = 5                  # how many rows we print per confidence bucket
+TITLE_WIDTH = 70                    # truncate titles so the printing stays tidy
 
-# Phase 3's LR plots now share the per-model results subdirectory with the
-# LR notebook / CLI script — see src/train_utils.py::model_results_dir.
+# the LR plots go into the same per-model results folder that the LR script uses
 from src.train_utils import RESULTS_DIR as _RESULTS_DIR
 _LR_RESULTS = _RESULTS_DIR / "logistic_regression"
 _LR_RESULTS.mkdir(parents=True, exist_ok=True)
 CM_PNG  = str(_LR_RESULTS / "confusion_matrix.png")
 ROC_PNG = str(_LR_RESULTS / "roc_curve.png")
 
-# The 9 engineered culinary feature names, derived from Phase 0 so we never
-# drift if those constants change.
+# the 9 engineered culinary feature names, built from Phase 0 so they will not
+# drift if those constants ever change
 CULINARY_FEATURE_NAMES: tuple = (
     tuple(CulinaryFeatureExtractor.BASELINE_FEATURES)
     + tuple(f"has_{g}" for g in CulinaryFeatureExtractor.KEYWORD_GROUPS)
 )
 
 
-# ---------------------------------------------------------------------------
 # Title recovery
-# ---------------------------------------------------------------------------
 def _recover_titles() -> pd.Series:
-    """Recreate the Phase 0 title series aligned to the split's RangeIndex."""
+    """
+    Here we rebuild the title series from Phase 0 aligned to the split's RangeIndex.
+    :return: the title series as strings
+    """
     bin_df = load_binary_matrix()
     txt_df = load_recipe_text()
     merged = merge_datasets(bin_df, txt_df, verbose=False)
@@ -100,16 +75,25 @@ def _recover_titles() -> pd.Series:
     return merged["title"].astype(str)
 
 
-# ---------------------------------------------------------------------------
 # Printing helpers
-# ---------------------------------------------------------------------------
 def _truncate(s: str, width: int = TITLE_WIDTH) -> str:
-    s = " ".join(s.split())          # collapse whitespace
+    """
+    This helper truncates a title string so the columns stay aligned when we print.
+    :param s: the title to truncate
+    :param width: the max width we allow
+    :return: the truncated title with a trailing ellipsis if it was cut
+    """
+    s = " ".join(s.split())          # collapse the whitespace
     return s if len(s) <= width else s[: width - 1] + "…"
 
 
 def _print_top_coefficients(coefs: pd.Series, k: int) -> None:
-    """Print top-k positive and top-k negative LR coefficients."""
+    """
+    This function prints the top-k positive and top-k negative LR coefficients,
+    and then spotlights where our engineered culinary features ended up.
+    :param coefs: the signed coefficients of the LR model
+    :param k: how many to take per direction
+    """
     top_pos = coefs.sort_values(ascending=False).head(k)
     top_neg = coefs.sort_values(ascending=True).head(k)
 
@@ -125,7 +109,7 @@ def _print_top_coefficients(coefs: pd.Series, k: int) -> None:
     for name, val in top_neg.items():
         print(f"  {val:+10.4f}   {name}")
 
-    # --- Spotlight: where do the engineered culinary features rank? --------
+    # Spotlight - where did our 9 engineered culinary features end up
     eng_set = set(CULINARY_FEATURE_NAMES)
     eng_coefs = coefs[coefs.index.isin(eng_set)].sort_values(
         key=lambda s: s.abs(), ascending=False
@@ -141,6 +125,7 @@ def _print_top_coefficients(coefs: pd.Series, k: int) -> None:
             f"   pushes toward {direction:<4}   {name}"
         )
 
+    # Now we check if any culinary feature actually cracked the top-15 lists
     in_top_pos = [n for n in top_pos.index if n in eng_set]
     in_top_neg = [n for n in top_neg.index if n in eng_set]
     if in_top_pos or in_top_neg:
@@ -162,7 +147,14 @@ def _print_confidence_groups(
     titles: pd.Series,
     k: int,
 ) -> None:
-    """Print the most-confident Hits/Misses and the most-borderline rows."""
+    """
+    Here we print the most-confident Hits, the most-confident Misses, and the
+    most-borderline test rows so we can look at the actual recipes by hand.
+    :param proba_hit: P(class = Hit) from predict_proba
+    :param y_true: the true labels for the test set
+    :param titles: the titles of the test recipes
+    :param k: how many rows we want per bucket
+    """
     df = pd.DataFrame({
         "title":    titles.values,
         "true":     y_true.values,
@@ -173,6 +165,7 @@ def _print_confidence_groups(
     df["correct"] = (df["true"] == df["pred"])
 
     def _emit(label: str, rows: pd.DataFrame) -> None:
+        # this little helper prints one bucket of rows
         print(f"\n  {label}")
         print(f"     {'p(Hit)':>7}  {'true':>4}  {'pred':>4}  {'verdict':>7}   title")
         print(f"     {'-'*7}  {'-'*4}  {'-'*4}  {'-'*7}   {'-'*TITLE_WIDTH}")
@@ -194,10 +187,13 @@ def _print_confidence_groups(
     _emit(f"Top {k} MOST BORDERLINE predictions     (p closest to 0.5):", borderline)
 
 
-# ---------------------------------------------------------------------------
 # Plots
-# ---------------------------------------------------------------------------
 def _save_confusion_matrix_plot(cm: np.ndarray, path: str) -> None:
+    """
+    This function saves the confusion matrix as a PNG.
+    :param cm: the confusion matrix
+    :param path: where we want to save the file
+    """
     fig, ax = plt.subplots(figsize=(6.5, 5.5))
     disp = ConfusionMatrixDisplay(
         confusion_matrix=cm,
@@ -213,6 +209,13 @@ def _save_confusion_matrix_plot(cm: np.ndarray, path: str) -> None:
 
 
 def _save_roc_plot(y_true: Iterable[int], y_score: Iterable[float], path: str) -> float:
+    """
+    Here we draw the ROC curve and save it as a PNG, with the AUC in the legend.
+    :param y_true: the true labels
+    :param y_score: the predicted probability for class Hit
+    :param path: where we want to save the PNG
+    :return: the AUC we calculated so the caller can sanity check it
+    """
     fpr, tpr, _ = roc_curve(y_true, y_score)
     auc = float(roc_auc_score(y_true, y_score))
 
@@ -233,10 +236,12 @@ def _save_roc_plot(y_true: Iterable[int], y_score: Iterable[float], path: str) -
     return auc
 
 
-# ---------------------------------------------------------------------------
 # Entry point
-# ---------------------------------------------------------------------------
 def main() -> None:
+    """
+    This is the main function that runs the whole Phase 3 analysis end-to-end:
+    train the LR, then run the 3 analyses on it.
+    """
     print("=" * 72)
     print("  PHASE 3 — INTERPRETATION & CONFIDENCE ANALYSIS")
     print("=" * 72)
@@ -252,21 +257,21 @@ def main() -> None:
     titles_all = _recover_titles()
     test_titles = titles_all.loc[X_test_adv.index]
 
-    # Sanity: titles line up 1:1 with the test rows.
+    # sanity check - the titles should line up 1:1 with the test rows
     assert len(test_titles) == len(X_test_adv), (
         "Title recovery mis-aligned — indices drifted between phases."
     )
 
-    # --- Train the interpretable model ------------------------------------
+    # Now we train the interpretable model
     print(f"\nTraining LogisticRegression on Advanced X_train {X_train_adv.shape}...")
-    # Solver choice matters here. With 687 features (mostly sparse 0/1 tags,
-    # many collinear), `lbfgs` did not converge cleanly even at max_iter=5000
-    # — the same test recipe's probability swung from 0.9997 to 0.0000
-    # between max_iter=2000 and max_iter=5000, proving the optimum was far
-    # from reached. `liblinear` uses coordinate descent (one feature at a
-    # time) and converges reliably on this kind of sparse-binary high-dim
-    # input. Without convergence, the coefficient-importance and confidence-
-    # analysis findings below would not be reproducible.
+    # The solver choice matters here. With 687 features (mostly sparse 0/1 tags,
+    # many of them collinear), lbfgs did not converge clean even with max_iter=5000
+    # - the same test recipe's probability swung from 0.9997 to 0.0000 between
+    # max_iter=2000 and max_iter=5000, which means the optimum was nowhere near
+    # reached. liblinear uses coordinate descent (one feature at a time) and it
+    # converges fine on this sparse-binary high-dim input. Without convergence
+    # the coefficient importance and confidence numbers below would not be
+    # reproducible.
     lr = LogisticRegression(
         solver="liblinear",
         C=1.0,
@@ -278,16 +283,16 @@ def main() -> None:
     y_pred = lr.predict(X_test_adv)
     proba_hit = lr.predict_proba(X_test_adv)[:, 1]    # P(class = 1 = Hit)
 
-    acc = accuracy_score(y_test, y_pred)
-    f1 = f1_score(y_test, y_pred)
+    test_accuracy = accuracy_score(y_test, y_pred)
+    test_f1 = f1_score(y_test, y_pred)
     cm = confusion_matrix(y_test, y_pred, labels=[0, 1])
-    auc = float(roc_auc_score(y_test, proba_hit))
+    test_auc = float(roc_auc_score(y_test, proba_hit))
 
-    print(f"  Test Accuracy : {acc:.4f}")
-    print(f"  Test F1-Score : {f1:.4f}")
-    print(f"  Test ROC AUC  : {auc:.4f}")
+    print(f"  Test Accuracy : {test_accuracy:.4f}")
+    print(f"  Test F1-Score : {test_f1:.4f}")
+    print(f"  Test ROC AUC  : {test_auc:.4f}")
 
-    # --- 1. Feature importance --------------------------------------------
+    # 1. Feature importance
     print("\n" + "=" * 72)
     print("  1) FEATURE IMPORTANCE — signed LR coefficients")
     print("=" * 72)
@@ -295,19 +300,20 @@ def main() -> None:
     coefs = pd.Series(lr.coef_[0], index=X_train_adv.columns)
     _print_top_coefficients(coefs, k=TOP_K)
 
-    # --- 2. Confidence analysis -------------------------------------------
+    # 2. Confidence analysis
     print("\n" + "=" * 72)
     print("  2) CONFIDENCE ANALYSIS — predict_proba on test set")
     print("=" * 72)
     _print_confidence_groups(proba_hit, y_test, test_titles, k=TOP_CONFIDENCE)
 
-    # --- 3. Plots ---------------------------------------------------------
+    # 3. Plots
     print("\n" + "=" * 72)
     print("  3) PLOTS")
     print("=" * 72)
     _save_confusion_matrix_plot(cm, CM_PNG)
     auc_check = _save_roc_plot(y_test, proba_hit, ROC_PNG)
-    assert abs(auc_check - auc) < 1e-9, "AUC mismatch between plot and metrics."
+    # the AUC from the plot should match exactly what we already computed
+    assert abs(auc_check - test_auc) < 1e-9, "AUC mismatch between plot and metrics."
     print(f"  Wrote {CM_PNG}")
     print(f"  Wrote {ROC_PNG}")
 

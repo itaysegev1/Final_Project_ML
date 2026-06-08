@@ -1,22 +1,22 @@
 """
-src package — foundational modules for the Epicurious Hit/Miss project.
+This is the src package for the Epicurious Hit/Miss project
 
-Exports the public API that notebooks and CLI scripts import:
+Here we expose the public API that the notebooks and the CLI scripts import:
 
     from src import build_preprocessed_datasets
     from src import save_metrics, save_predictions, save_figure, fit_and_score
     from src import CulinaryFeatureExtractor
 
-The project's "42 Guarantee" lives in `src/train_utils.py::RANDOM_STATE` —
-a single source of truth that every model in the pipeline reads from
-(see README §3 for the audit).
+The project's "42 Guarantee" lives in src/train_utils.py::RANDOM_STATE — one
+single source of truth that every model in the pipeline reads from
+(see README section 3 for the audit).
 """
 
-from src.phase0_data_foundation import (
+from src.data_foundation import (
     CulinaryFeatureExtractor,
     build_dataset,
 )
-from src.phase1_preprocessing import (
+from src.preprocessing import (
     build_preprocessed_datasets,
 )
 from src.train_utils import (

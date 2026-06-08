@@ -1,5 +1,5 @@
 """
-Train and evaluate the Logistic Regression model on Baseline + Advanced.
+This script trains the Logistic Regression model and checks how it does on the Baseline and Advanced datasets.
 
 Outputs (written to `results/logistic_regression/`):
     - metrics.json
@@ -8,16 +8,15 @@ Outputs (written to `results/logistic_regression/`):
     - confusion_matrix.png            annotated heatmap (Advanced fit)
     - roc_curve.png                   ROC + AUC vs predict_proba (Advanced fit)
 
-Hyperparameters are pinned by project convention so numbers reproduce
-across the rest of the pipeline (Phase 3 uses the same LR config for
-its interpretability work):
+We pin the hyperparameters here so the numbers stay the same all over the project
+(Phase 3 also uses the same LR config when we do the interpretability stuff):
 
-    solver='liblinear'   — coordinate descent, converges reliably on the
-                           sparse high-dimensional input.
-    C=1.0                — default L2 regularisation strength.
-    max_iter=5000        — generous head-room; liblinear converges well
-                           before this on this dataset.
-    random_state=42      — imported from src.train_utils.RANDOM_STATE.
+    solver='liblinear'   — coordinate descent, converges nicely on the
+                           sparse high dimensional input we have.
+    C=1.0                — the default L2 regularisation strength.
+    max_iter=5000        — way more than we need, liblinear usually converges
+                           long before that on this dataset.
+    random_state=42      — we import it from src.train_utils.RANDOM_STATE.
 """
 
 from __future__ import annotations
@@ -57,40 +56,56 @@ MODEL_CONFIG = {
 
 
 def _build_model() -> LogisticRegression:
+    """
+    Here we just build a fresh LogisticRegression model using the config dict above
+    :return: the Logistic Regression model
+    """
     return LogisticRegression(**MODEL_CONFIG)
 
 
 def main() -> None:
+    """
+    The main function, this is where we do everything - loading the data, training
+    the LR model on both datasets, saving the predictions, and at the end we make
+    the plots and write the metrics json.
+    :return: nothing, all the results get written to disk
+    """
     print("=" * 72)
     print(f"  TRAIN — {DISPLAY_NAME}   (random_state = {RANDOM_STATE})")
     print("=" * 72)
 
+    # loading the preprocessed datasets
     datasets, y_train, y_test = load_preprocessed()
     per_ds_results = {}
 
+    # going over each dataset and training a fresh model
     for ds_name in DATASETS:
-        X_train, X_test = datasets[ds_name]
+        x_train_matrix, x_test_matrix = datasets[ds_name]
         model = _build_model()
-        result = fit_and_score(model, X_train, y_train, X_test, y_test)
+        # fit and score the model on this dataset
+        result = fit_and_score(model, x_train_matrix, y_train, x_test_matrix, y_test)
         per_ds_results[ds_name] = result
 
-        print_dataset_block(ds_name, X_train.shape, result)
+        print_dataset_block(ds_name, x_train_matrix.shape, result)
         save_predictions(MODEL_SLUG, ds_name, result["y_pred"])
 
+    # printing the difference between Baseline and Advanced
     print_delta(per_ds_results)
 
-    # --- Plots (Advanced fit) --------------------------------------------
-    adv = per_ds_results["Advanced"]
+    # Plots (Advanced fit)
+    advanced_result = per_ds_results["Advanced"]
+    # building the confusion matrix as a numpy array from the tn/fp/fn/tp
     cm_array = np.array([
-        [adv["confusion_matrix"]["tn"], adv["confusion_matrix"]["fp"]],
-        [adv["confusion_matrix"]["fn"], adv["confusion_matrix"]["tp"]],
+        [advanced_result["confusion_matrix"]["tn"], advanced_result["confusion_matrix"]["fp"]],
+        [advanced_result["confusion_matrix"]["fn"], advanced_result["confusion_matrix"]["tp"]],
     ])
     fig_cm = confusion_matrix_figure(cm_array, title=f"{DISPLAY_NAME} — Confusion Matrix (Advanced)")
     save_figure(MODEL_SLUG, "confusion_matrix.png", fig_cm)
     plt.close(fig_cm)
 
+    # now we make the ROC curve - LR has predict_proba so we always get an auc back
     fig_roc, auc = roc_curve_figure(
-        y_test, adv["proba_hit"],
+        y_test, advanced_result["proba_hit"],
         title=f"{DISPLAY_NAME} — ROC Curve (Advanced)",
         model_label=DISPLAY_NAME,
     )
@@ -98,6 +113,7 @@ def main() -> None:
     plt.close(fig_roc)
     print(f"\n  Test ROC AUC (Advanced) : {auc:.4f}")
 
+    # building the final metrics payload and saving it as json
     payload = build_metrics_payload(
         model_name=MODEL_NAME,
         display_name=DISPLAY_NAME,

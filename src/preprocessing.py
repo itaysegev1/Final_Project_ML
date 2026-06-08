@@ -1,48 +1,23 @@
 """
-Phase 1 — Preprocessing Pipeline & Baseline Preparation
-========================================================
+This module is Phase 1 - it builds the preprocessing pipeline on top of Phase 0
+and makes the 2 model ready matrices, Baseline and Advanced.
+The Baseline is just the robust scaled nutrition columns + the raw binary tags
+(no text features) - this is our control to beat.
+The Advanced adds on top of that the 9 culinary features from the
+CulinaryFeatureExtractor, with the 3 numeric ones also robust scaled and the
+6 binary has_* ones passed through.
 
-This module turns the raw feature frame produced by Phase 0 into two
-model-ready matrices, fit strictly on the training split:
+We use RobustScaler instead of StandardScaler, because the nutrition columns
+have some extreme outliers (a few crazy calorie/sodium values from the
+original web scrape) that blow up the std and crush everything else. The
+Phase 0 sanity panel showed test std around 0.03 for fat after standard
+scaling which is bad for KNN distances.
 
-    * Baseline matrix : robust-scaled nutrition + raw binary tags only.
-                        (No JSON-derived text features. This is the control
-                        condition that the engineered features must beat.)
-    * Advanced matrix : robust-scaled nutrition + raw binary tags + the 9
-                        features emitted by `CulinaryFeatureExtractor` (with
-                        the 3 numeric culinary features also robust-scaled,
-                        the 6 binary ones passed through).
+Both matrices share the same train/test split from Phase 0 so the comparison
+in Phase 2 stays apples to apples.
 
-We use `RobustScaler` (median-centered, IQR-scaled) rather than
-`StandardScaler` because the nutrition columns contain extreme outliers (a
-handful of clearly-bogus calorie/sodium values from the original web scrape)
-that inflate the sample standard deviation enough to crush the rest of the
-distribution. The Phase-0 sanity panel showed test-set std ≈ 0.03 for `fat`
-after standard-scaling — i.e. virtually all of the variance was being
-absorbed by a tiny number of outliers, which would in turn destroy the
-distance metric for KNN and similar models.
-
-Both matrices share the same train/test row partition produced in Phase 0,
-which guarantees that an A/B comparison in Phase 2 is apples-to-apples.
-
-Leakage discipline
-------------------
-Every transformer (StandardScaler, CulinaryFeatureExtractor) is `fit` on
-``X_train`` *only* and then used to ``transform`` ``X_test``. No statistic
-derived from the test split ever influences the training pipeline.
-
-Column routing
---------------
-The Phase 0 feature frame X has 680 columns of three kinds:
-    1. Continuous nutrition (4 cols):   calories, protein, fat, sodium
-    2. Raw recipe text (2 cols):        directions, ingredients
-    3. Binary recipe tags (674 cols):   everything else from the CSV
-``title`` is already removed in Phase 0; ``date``/``desc``/``categories`` are
-never pulled in from the JSON in the first place. Note that the column named
-``date`` that *does* survive is the CSV's binary "date" tag (the dried
-fruit) — a legitimate feature, not the JSON publication date. The defensive
-drop below removes any of those names if they ever reappear, but in the
-current pipeline it is a no-op (and is reported as such).
+Leakage discipline - every transformer is fit on X_train only and then we
+just transform X_test. No test statistic ever leaks into the training pipe.
 """
 
 from __future__ import annotations
@@ -56,36 +31,35 @@ from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import RobustScaler
 
-from src.phase0_data_foundation import (
+from src.data_foundation import (
     CulinaryFeatureExtractor,
     build_dataset,
 )
 
 
-# ---------------------------------------------------------------------------
 # Configuration
-# ---------------------------------------------------------------------------
 NUMERIC_COLUMNS: Tuple[str, ...] = ("calories", "protein", "fat", "sodium")
 TEXT_COLUMNS: Tuple[str, ...] = ("directions", "ingredients")
 
-# Names the spec asks us to drop. In the current Phase 0 output none of these
-# survive — but we drop defensively in case the upstream changes. The CSV's
-# "date" binary tag (the fruit) is kept; see the column-classification logic.
+# these are the names the spec asks us to drop. in the current Phase 0 output
+# none of them survive but we drop defensively just in case. note the CSV's
+# "date" binary tag (the fruit) is kept - see the column classifier below.
 DROP_IF_PRESENT: Tuple[str, ...] = ("title", "desc", "categories")
 
-# The 3 numeric features inside CulinaryFeatureExtractor that need scaling.
-# The 6 `has_*` binary features it also emits are passed through untouched.
+# the 3 numeric features inside CulinaryFeatureExtractor that we need to scale.
+# the 6 has_* binary features it also emits are passed through untouched.
 CULINARY_NUMERIC: Tuple[str, ...] = CulinaryFeatureExtractor.BASELINE_FEATURES
 
 
-# ---------------------------------------------------------------------------
 # Column classification
-# ---------------------------------------------------------------------------
-def classify_columns(X: pd.DataFrame) -> Tuple[List[str], List[str], List[str], List[str]]:
-    """Partition the columns of X into (numeric, text, binary_tags, dropped).
 
-    The partition is mutually exclusive and collectively exhaustive over
-    ``X.columns`` — verified at the bottom of this function.
+def classify_columns(X: pd.DataFrame) -> Tuple[List[str], List[str], List[str], List[str]]:
+    """
+    This function splits the columns of X into 4 groups: numeric, text, binary
+    tags and dropped. The partition is mutually exclusive and covers all the
+    columns - we verify it at the end.
+    :param X: the feature frame coming out of Phase 0
+    :return: a tuple (numeric, text, binary_tags, to_drop) of column name lists
     """
     cols = list(X.columns)
 
@@ -97,13 +71,13 @@ def classify_columns(X: pd.DataFrame) -> Tuple[List[str], List[str], List[str], 
         if c not in numeric and c not in text and c not in to_drop
     ]
 
-    # Sanity: every input column is accounted for, and only once.
+    # sanity check - every input column is accounted for and only once
     accounted = numeric + text + binary_tags + to_drop
     assert sorted(accounted) == sorted(cols), (
         "Column classification missed or double-counted some columns."
     )
 
-    # Sanity: nutrition fields really are numeric.
+    # sanity check - the nutrition fields really are numeric
     for col in numeric:
         if not pd.api.types.is_numeric_dtype(X[col]):
             raise TypeError(
@@ -113,18 +87,18 @@ def classify_columns(X: pd.DataFrame) -> Tuple[List[str], List[str], List[str], 
     return numeric, text, binary_tags, to_drop
 
 
-# ---------------------------------------------------------------------------
 # Pipeline factories
-# ---------------------------------------------------------------------------
-def _numeric_pipeline() -> Pipeline:
-    """Median-impute, then robust-scale.
 
-    Median imputation is the natural complement to RobustScaler: the imputer
-    fills missing values with the train median, and RobustScaler then centers
-    the column on that same train median — so any imputed value lands at
-    exactly 0 in the scaled feature space (the neutral "no information"
-    position). This pairing avoids the bias mean-impute + StandardScaler
-    would inject when ~21% of nutrition values are missing from the CSV.
+def _numeric_pipeline() -> Pipeline:
+    """
+    Here we build the small pipeline for the nutrition columns - first we
+    median impute and then robust scale. The pairing is on purpose: the
+    imputer fills missing values with the train median, and RobustScaler
+    then centers on that same train median, so any imputed value lands
+    exactly at 0 in the scaled space (the neutral "no information" spot).
+    This avoids the bias that mean impute + StandardScaler would inject
+    when about 21% of the nutrition values are missing from the CSV.
+    :return: the small numeric Pipeline
     """
     return Pipeline(
         steps=[
@@ -138,24 +112,31 @@ def build_baseline_preprocessor(
     numeric_cols: List[str],
     binary_tag_cols: List[str],
 ) -> ColumnTransformer:
-    """Baseline preprocessor: scaled nutrition + raw binary tags (no text)."""
+    """
+    This function builds the Baseline preprocessor - scaled nutrition + the
+    raw binary tags, no text features at all.
+    :param numeric_cols: the names of the numeric (nutrition) columns
+    :param binary_tag_cols: the names of the binary tag columns
+    :return: the Baseline ColumnTransformer
+    """
     return ColumnTransformer(
         transformers=[
             ("numeric", _numeric_pipeline(), numeric_cols),
             ("tags", "passthrough", binary_tag_cols),
         ],
-        remainder="drop",   # explicitly drops directions/ingredients/etc.
+        remainder="drop",   # this explicitly drops directions/ingredients/etc
         verbose_feature_names_out=False,
     ).set_output(transform="pandas")
 
 
 def _build_culinary_pipeline() -> Pipeline:
-    """Extract 9 culinary features, then scale only the 3 numeric ones.
-
-    The inner ColumnTransformer relies on the fact that
-    ``CulinaryFeatureExtractor.transform`` returns a DataFrame with named
-    columns, so we can select ``CULINARY_NUMERIC`` by name and passthrough the
-    6 binary ``has_*`` columns.
+    """
+    Here we build the culinary sub pipeline - first we extract the 9 culinary
+    features and then we scale only the 3 numeric ones. The inner
+    ColumnTransformer counts on the fact that CulinaryFeatureExtractor.transform
+    returns a DataFrame with named columns, so we can pick CULINARY_NUMERIC by
+    name and passthrough the 6 binary has_* columns.
+    :return: the culinary Pipeline
     """
     return Pipeline(
         steps=[
@@ -179,7 +160,14 @@ def build_advanced_preprocessor(
     text_cols: List[str],
     binary_tag_cols: List[str],
 ) -> ColumnTransformer:
-    """Advanced preprocessor: baseline + culinary features (scaled internally)."""
+    """
+    This function builds the Advanced preprocessor - same as the Baseline
+    plus the culinary features (which are scaled internally).
+    :param numeric_cols: the names of the numeric (nutrition) columns
+    :param text_cols: the names of the raw text columns
+    :param binary_tag_cols: the names of the binary tag columns
+    :return: the Advanced ColumnTransformer
+    """
     return ColumnTransformer(
         transformers=[
             ("numeric", _numeric_pipeline(), numeric_cols),
@@ -191,15 +179,21 @@ def build_advanced_preprocessor(
     ).set_output(transform="pandas")
 
 
-# ---------------------------------------------------------------------------
 # Fit / transform orchestration
-# ---------------------------------------------------------------------------
+
 def fit_transform_pair(
     preprocessor: ColumnTransformer,
     X_train: pd.DataFrame,
     X_test: pd.DataFrame,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Fit on train only, then transform both splits — the leakage-free idiom."""
+    """
+    Here we do the leakage-free idiom: we fit only on the train split and then
+    transform both splits.
+    :param preprocessor: the ColumnTransformer to fit
+    :param X_train: the train features
+    :param X_test: the test features
+    :return: the (X_train_out, X_test_out) pair after transformation
+    """
     X_train_out = preprocessor.fit_transform(X_train)
     X_test_out = preprocessor.transform(X_test)
     return X_train_out, X_test_out
@@ -208,13 +202,14 @@ def fit_transform_pair(
 def build_preprocessed_datasets(
     verbose: bool = True,
 ):
-    """End-to-end Phase 1 pipeline.
-
-    Returns
-    -------
-    (X_train_baseline, X_test_baseline,
-     X_train_advanced, X_test_advanced,
-     y_train,          y_test)
+    """
+    This is the end-to-end Phase 1 pipeline - it loads the Phase 0 dataset,
+    classifies the columns and builds both the Baseline and the Advanced
+    matrices in one shot.
+    :param verbose: if True we print a small column report
+    :return: (X_train_baseline, X_test_baseline,
+              X_train_advanced, X_test_advanced,
+              y_train, y_test)
     """
     X_train, X_test, y_train, y_test = build_dataset(verbose=verbose)
 
@@ -227,11 +222,11 @@ def build_preprocessed_datasets(
             f"{to_drop if to_drop else '(none — defensive drop list is a no-op here)'}"
         )
 
-    # --- Baseline ----------------------------------------------------------
+    # Baseline
     baseline = build_baseline_preprocessor(numeric, binary_tags)
     X_train_baseline, X_test_baseline = fit_transform_pair(baseline, X_train, X_test)
 
-    # --- Advanced ----------------------------------------------------------
+    # Advanced
     advanced = build_advanced_preprocessor(numeric, text, binary_tags)
     X_train_advanced, X_test_advanced = fit_transform_pair(advanced, X_train, X_test)
 
@@ -242,10 +237,13 @@ def build_preprocessed_datasets(
     )
 
 
-# ---------------------------------------------------------------------------
 # Entry point
-# ---------------------------------------------------------------------------
+
 def main() -> None:
+    """
+    Here we run Phase 1 end to end and print a small sanity panel so we can
+    eyeball the shapes and the RobustScaler stats.
+    """
     (
         X_train_baseline, X_test_baseline,
         X_train_advanced, X_test_advanced,
@@ -270,11 +268,17 @@ def main() -> None:
           f"{len(CULINARY_NUMERIC)} numeric + "
           f"{len(CulinaryFeatureExtractor.KEYWORD_GROUPS)} binary)")
 
-    # Sanity check: nutrition is properly RobustScaler-scaled in BOTH matrices.
-    # RobustScaler centers on the train median and scales by the train IQR,
-    # so on X_train: median ≈ 0 and IQR ≈ 1. (Mean/std are NOT guaranteed to
-    # be 0/1 — that's a StandardScaler invariant, not a RobustScaler one.)
+    # sanity check: nutrition is robust-scaled in BOTH matrices.
+    # RobustScaler centers on the train median and scales by the train IQR
+    # so on X_train we expect median ~0 and IQR ~1. (mean/std are NOT
+    # guaranteed to be 0/1 - that is a StandardScaler invariant, not a
+    # RobustScaler one.)
     def _robust_stats(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Small helper - returns the median and IQR for each column of df.
+        :param df: the frame to summarize
+        :return: a small DataFrame with median and iqr columns
+        """
         q1 = df.quantile(0.25)
         q3 = df.quantile(0.75)
         return pd.DataFrame({
@@ -286,14 +290,14 @@ def main() -> None:
     print("\nSanity — RobustScaler on X_train_baseline (median ~0, IQR ~1):")
     print(_robust_stats(nutr_train_baseline).to_string())
 
-    # Sanity check: the test split is NOT median-0 / IQR-1 — it was scaled
-    # using TRAIN statistics, so its own median/IQR drift slightly.
+    # sanity check: the test split is NOT median-0 / IQR-1 because it was
+    # scaled with the TRAIN statistics, so its own median/IQR drift a bit
     nutr_test_baseline = X_test_baseline[list(NUMERIC_COLUMNS)]
     print("\nSanity — same columns on X_test_baseline "
           "(medians/IQRs need NOT be 0/1; scaler was fit on train only):")
     print(_robust_stats(nutr_test_baseline).to_string())
 
-    # y splits are unchanged from Phase 0 — just report them for completeness.
+    # the y splits are unchanged from Phase 0 - just printing them for completeness
     print(f"\ny_train: {y_train.shape}  (hit rate {y_train.mean():.3f})")
     print(f"y_test : {y_test.shape}  (hit rate {y_test.mean():.3f})")
 
