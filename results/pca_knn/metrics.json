@@ -1,0 +1,52 @@
+{
+  "model_name": "PCA(0.90) + KNN",
+  "display_name": "PCA(0.90) + KNN",
+  "model_config": {
+    "pca": {
+      "n_components": 0.9,
+      "random_state": 42
+    },
+    "knn": {
+      "n_neighbors": 5,
+      "n_jobs": -1
+    }
+  },
+  "n_train": 14578,
+  "n_test": 3645,
+  "random_state": 42,
+  "datasets": {
+    "Baseline": {
+      "accuracy": 0.5146776406035666,
+      "f1": 0.5565304587615943,
+      "confusion_matrix": {
+        "tn": 766,
+        "fp": 932,
+        "fn": 837,
+        "tp": 1110
+      },
+      "fp_rate": 0.5488810365135454,
+      "fn_rate": 0.42989214175654855
+    },
+    "Advanced": {
+      "accuracy": 0.5133058984910837,
+      "f1": 0.557826520438684,
+      "confusion_matrix": {
+        "tn": 752,
+        "fp": 946,
+        "fn": 828,
+        "tp": 1119
+      },
+      "fp_rate": 0.5571260306242638,
+      "fn_rate": 0.4252696456086287
+    }
+  },
+  "extras": {
+    "pca_components_retained": {
+      "Baseline": 1,
+      "Advanced": 1
+    },
+    "pca_variance_threshold": 0.9,
+    "knn_n_neighbors": 5,
+    "roc_auc_advanced": 0.5161047802091103
+  }
+}

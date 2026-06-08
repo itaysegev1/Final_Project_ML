@@ -1,0 +1,42 @@
+{
+  "model_name": "LogisticRegression",
+  "display_name": "Logistic Regression",
+  "model_config": {
+    "solver": "liblinear",
+    "C": 1.0,
+    "max_iter": 5000,
+    "random_state": 42
+  },
+  "n_train": 14578,
+  "n_test": 3645,
+  "random_state": 42,
+  "datasets": {
+    "Baseline": {
+      "accuracy": 0.5983539094650205,
+      "f1": 0.6427525622254758,
+      "confusion_matrix": {
+        "tn": 864,
+        "fp": 834,
+        "fn": 630,
+        "tp": 1317
+      },
+      "fp_rate": 0.4911660777385159,
+      "fn_rate": 0.3235747303543914
+    },
+    "Advanced": {
+      "accuracy": 0.6030178326474622,
+      "f1": 0.6435082532643508,
+      "confusion_matrix": {
+        "tn": 892,
+        "fp": 806,
+        "fn": 641,
+        "tp": 1306
+      },
+      "fp_rate": 0.4746760895170789,
+      "fn_rate": 0.3292244478685157
+    }
+  },
+  "extras": {
+    "roc_auc_advanced": 0.6499519359613988
+  }
+}
