@@ -1,0 +1,49 @@
+{
+  "model_name": "MLP (128,64) (no early stopping)",
+  "display_name": "MLP (128, 64) \u2014 no early stopping (overfit baseline)",
+  "model_config": {
+    "hidden_layer_sizes": [
+      128,
+      64
+    ],
+    "max_iter": 300,
+    "verbose": true,
+    "random_state": 42,
+    "early_stopping": false
+  },
+  "n_train": 14578,
+  "n_test": 3645,
+  "random_state": 42,
+  "datasets": {
+    "Baseline": {
+      "accuracy": 0.5640603566529493,
+      "f1": 0.5828301391441323,
+      "confusion_matrix": {
+        "tn": 946,
+        "fp": 752,
+        "fn": 837,
+        "tp": 1110
+      },
+      "fp_rate": 0.44287396937573614,
+      "fn_rate": 0.42989214175654855
+    },
+    "Advanced": {
+      "accuracy": 0.5728395061728395,
+      "f1": 0.5935787000783085,
+      "confusion_matrix": {
+        "tn": 951,
+        "fp": 747,
+        "fn": 810,
+        "tp": 1137
+      },
+      "fp_rate": 0.43992932862190814,
+      "fn_rate": 0.41602465331278893
+    }
+  },
+  "extras": {
+    "roc_auc_advanced": 0.6110085704623646,
+    "epochs_total": 53,
+    "training_loss_at_final": 0.024109449291526218,
+    "loss_curve_plot": "loss_curve.png"
+  }
+}

@@ -1,0 +1,12 @@
+# Pinned versions — the reproducibility guarantee ("identical metrics.json
+# from a clean checkout") only holds with these exact versions, because
+# sklearn estimator behaviour changes between releases (e.g. AdaBoost's
+# default algorithm changed across 1.4 -> 1.6).
+numpy==2.0.2
+pandas==2.3.2
+scikit-learn==1.6.1
+matplotlib==3.9.4
+
+# notebook tooling (only needed to regenerate / run the notebooks)
+nbformat==5.10.4
+jupyterlab

@@ -84,7 +84,8 @@ def setup_cells() -> List[Any]:
 
             Here we set matplotlib to inline mode, add the project root
             to sys.path so we can import from src/, and bring in the
-            shared helpers together with the project-wide RANDOM_STATE = 42.
+            shared helpers together with the project-wide RANDOM_STATE = 42
+            (bound once in src/_constants.py, re-exported via src).
             """
         ),
         code(
@@ -111,6 +112,7 @@ def setup_cells() -> List[Any]:
                 build_metrics_payload,
                 save_metrics,
                 save_predictions,
+                save_test_index,
                 save_figure,
                 confusion_matrix_figure,
                 roc_curve_figure,
@@ -119,7 +121,7 @@ def setup_cells() -> List[Any]:
                 model_results_dir,
             )
 
-            print(f"RANDOM_STATE = {RANDOM_STATE} (single source of truth in src.train_utils)")
+            print(f"RANDOM_STATE = {RANDOM_STATE} (bound once in src/_constants.py)")
             """
         ),
     ]
@@ -189,6 +191,7 @@ def training_loop_cells(model_build_code: str) -> List[Any]:
                 save_predictions(MODEL_SLUG, ds_name, result["y_pred"])
 
             print_delta(per_ds_results)
+            save_test_index(MODEL_SLUG, y_test)
             """
         ),
     ]
@@ -336,9 +339,10 @@ def build_logistic_regression_notebook() -> Path:
             coefficients we can read directly in IQR units, calibrated
             predict_proba for the Phase 4 threshold sweep, and the
             solver that finally converges (this is also the one that
-            caught the lbfgs convergence bug from README section 2.4).
+            caught the lbfgs convergence bug from research.md section 2.4).
 
-            All randomness comes from src.train_utils.RANDOM_STATE = 42.
+            All randomness comes from RANDOM_STATE = 42, bound once in
+            src/_constants.py.
             """
         ),
     ]
@@ -388,7 +392,7 @@ def build_logistic_regression_notebook() -> Path:
             LR is the model where we can just read the internals
             directly. The top 10 positive and top 10 negative
             coefficients give us the "Recipe for Success / Disaster"
-            story from README section 3.4.
+            story from research.md section 3.4.
             """
         ),
         code(
@@ -410,11 +414,12 @@ def build_logistic_regression_notebook() -> Path:
     cells += summary_cells(
         "Logistic Regression",
         """
-        - **Test Accuracy / F1 / AUC:** about 0.6030 / 0.6435 / 0.6500
+        - **Test Accuracy / F1 / AUC:** about 0.6011 / 0.6405 / 0.6491
         - **Interpretable champion** - the top coefficient is what
-          drives the "Recipe for Success" story in README section 3.4.
-        - **Calibrated probabilities** - this is what feeds the Phase
-          4 threshold sweep (`advanced_tuning.py`).
+          drives the "Recipe for Success" story in research.md section 3.4.
+        - **Calibrated probabilities** - this is what feeds the Phase 4
+          threshold selection (`advanced_tuning.py`, selection on a
+          validation split).
         """
     )
     return write_nb("01_Logistic_Regression.ipynb", cells)
@@ -433,10 +438,10 @@ def build_random_forest_notebook() -> Path:
 
             The predictive champion of the project. Random Forest
             breaks past the "linear ceiling" of Logistic Regression
-            (+1.48% Acc, +2.73% F1 on Advanced) because it can pick up
-            non-linear interactions between features. What is really
+            (+2.28 pp Acc, +3.49 pp F1 on Advanced) because it can pick
+            up non-linear interactions between features. What is really
             interesting is that its feature-importance ranking inverts
-            the LR coefficient picture - see README section 3.5.
+            the LR coefficient picture - see research.md section 3.5.
             """
         ),
     ]
@@ -485,11 +490,13 @@ def build_random_forest_notebook() -> Path:
             The top 7 features for RF are all continuous numerics -
             three of them are engineered (`avg_words_per_step`,
             `num_ingredients`, `num_steps`) and four come from the
-            original nutrition columns. This is the opposite of what
-            we saw with LR, where the binary tags were on top. The
-            reason: L2 splits the credit across collinear features,
-            but trees just pick the single best splitter at each node
-            and don't care about collinearity. See README section 3.5.
+            original nutrition columns - and all six engineered has_*
+            keyword features place inside the top 20, above ~670 of
+            the editorial tags. This is the opposite of what we saw
+            with LR, where the binary tags were on top. The reason: L2
+            splits the credit across collinear features, but trees
+            just pick the single best splitter at each node and don't
+            care about collinearity. See research.md section 3.5.
             """
         ),
         code(
@@ -528,12 +535,13 @@ def build_random_forest_notebook() -> Path:
     cells += summary_cells(
         "Random Forest (n=200)",
         """
-        - **Test Accuracy / F1:** about 0.6178 / 0.6708 - the top
+        - **Test Accuracy / F1:** about 0.6239 / 0.6753 - the top
           scores in the whole lineup.
-        - **Breaks the linear ceiling** by +1.48% Acc and +2.73% F1
+        - **Breaks the linear ceiling** by +2.28 pp Acc and +3.49 pp F1
           over LR.
         - **Inverts the feature-importance ranking** - the continuous
-          numerics dominate where they were near-zero on LR.
+          numerics dominate (and all six has_* features crack the top
+          20) where they sat in the bottom half of the LR ranking.
         """
     )
     return write_nb("02_Random_Forest.ipynb", cells)
@@ -551,14 +559,16 @@ def build_mlp_notebook() -> Path:
             # 03 - MLP Neural Network (with early stopping)
 
             Two-hidden-layer (128, 64) MLP. The non-regularised
-            version of this exact model pushed training loss down to
-            about 0.009 in 64 epochs while test accuracy actually
-            dropped BELOW Logistic Regression - a textbook overfitting
-            signature. In this notebook we train the regularised
-            version with early stopping based on validation
-            (`early_stopping=True`, `validation_fraction=0.15`,
-            `n_iter_no_change=10`), and we recover test performance
-            back to about LR within noise (see README section 3.6).
+            version of this exact model (reproducible with
+            `python train_mlp.py --no-early-stopping`) pushed training
+            loss down to about 0.024 in 53 epochs while test accuracy
+            dropped FAR BELOW Logistic Regression - a textbook
+            overfitting signature. In this notebook we train the
+            regularised version with early stopping based on
+            validation (`early_stopping=True`,
+            `validation_fraction=0.15`, `n_iter_no_change=10`), and
+            test performance recovers PAST the linear baseline
+            (see research.md section 3.6).
             """
         ),
     ]
@@ -658,64 +668,70 @@ def build_mlp_notebook() -> Path:
         ),
         md(
             """
-            ## 7.5 - Early-stopping ablation (vs the prior overfit run)
+            ## 7.5 - Early-stopping ablation (vs the saved overfit run)
 
-            Before we turned on early stopping, the same architecture
-            ran for 64 epochs with training loss 0.0087 and test
-            accuracy 0.5816 (below LR). After we turn it on, the
-            network restores back to the best-validation epoch and
-            climbs back up to about 0.61 test accuracy - matching LR
-            within noise. See README section 3.6.
+            The overfit baseline lives on disk in
+            results/mlp_overfit/metrics.json, written by
+            `python train_mlp.py --no-early-stopping` - no hardcoded
+            numbers. Without early stopping the same architecture runs
+            its training loss to about 0.024 over 53 epochs and lands
+            FAR below LR on the test set; with early stopping the
+            network restores to the best-validation epoch and clears
+            the linear baseline. See research.md section 3.6.
             """
         ),
         code(
             """
-            MLP_OVERFITTED_PRIOR = {
-                "epochs":       64,
-                "final_loss":   0.0087,
-                "advanced_acc": 0.5816,
-                "advanced_f1":  0.6107,
-            }
+            from src import load_metrics
 
             now = per_ds_results["Advanced"]
-            d_acc = now["accuracy"] - MLP_OVERFITTED_PRIOR["advanced_acc"]
-            d_f1 = now["f1"] - MLP_OVERFITTED_PRIOR["advanced_f1"]
+            try:
+                prior = load_metrics("mlp_overfit")
+            except FileNotFoundError:
+                prior = None
+                print("No overfit baseline found - run "
+                      "`python train_mlp.py --no-early-stopping` once to produce it.")
 
-            display(pd.DataFrame({
-                "Previous (no early stopping)": [
-                    f"{MLP_OVERFITTED_PRIOR['epochs']} epochs",
-                    f"loss -> {MLP_OVERFITTED_PRIOR['final_loss']:.4f}",
-                    f"{MLP_OVERFITTED_PRIOR['advanced_acc']:.4f}",
-                    f"{MLP_OVERFITTED_PRIOR['advanced_f1']:.4f}",
-                ],
-                "Current (early stopping)": [
-                    f"{diagnostics['epochs_total']} epochs (restored at {best_epoch})",
-                    f"loss -> {diagnostics['training_loss_at_final']:.4f}",
-                    f"{now['accuracy']:.4f} ({d_acc:+.4f})",
-                    f"{now['f1']:.4f} ({d_f1:+.4f})",
-                ],
-            }, index=["Training", "Final training loss", "Test Acc", "Test F1"]))
+            if prior is not None:
+                prior_adv = prior["datasets"]["Advanced"]
+                d_acc = now["accuracy"] - prior_adv["accuracy"]
+                d_f1 = now["f1"] - prior_adv["f1"]
+
+                display(pd.DataFrame({
+                    "Overfit baseline (no early stopping)": [
+                        f"{prior['extras'].get('epochs_total', '?')} epochs",
+                        f"loss -> {prior['extras'].get('training_loss_at_final', float('nan')):.4f}",
+                        f"{prior_adv['accuracy']:.4f}",
+                        f"{prior_adv['f1']:.4f}",
+                    ],
+                    "Current (early stopping)": [
+                        f"{diagnostics['epochs_total']} epochs (restored at {best_epoch})",
+                        f"loss -> {diagnostics['training_loss_at_final']:.4f}",
+                        f"{now['accuracy']:.4f} ({d_acc:+.4f})",
+                        f"{now['f1']:.4f} ({d_f1:+.4f})",
+                    ],
+                }, index=["Training", "Final training loss", "Test Acc", "Test F1"]))
             """
         ),
     ]
     cells += save_metrics_cells(
         '''{
                 "early_stopping_diagnostics": diagnostics,
-                "overfitted_prior_run":       MLP_OVERFITTED_PRIOR,
                 "roc_auc_advanced":           auc,
             }'''
     )
     cells += summary_cells(
         "MLP (128, 64) + early stopping",
         """
-        - **Test Accuracy / F1:** about 0.6066 / 0.6477 - matches LR
-          within noise once we turn on early stopping.
+        - **Test Accuracy / F1:** about 0.6126 / 0.6632 - clears the
+          linear baseline on both metrics once we turn on early
+          stopping (+1.15 pp Acc, +2.27 pp F1 vs LR).
         - **Without early stopping** the exact same architecture
-          overfit (Acc 0.5816, below LR) - see the ablation table in
-          section 7.5.
+          overfit (Acc 0.5728, far below LR) - see the ablation table
+          in section 7.5.
         - **The lesson:** more capacity is actually a liability if
-          we don't add the matching regularisation. README section 4
-          Lesson #6.
+          we don't add the matching regularisation. research.md
+          section 4 Lesson #6.
         """
     )
     return write_nb("03_MLP_Neural_Network.ipynb", cells)
@@ -774,12 +790,13 @@ def build_perceptron_notebook() -> Path:
     )
     cells += confusion_matrix_cells()
     cells += roc_curve_cells()
-    cells += save_metrics_cells()
+    cells += save_metrics_cells('{"roc_auc_advanced": auc}')
     cells += summary_cells(
         "Perceptron",
         """
-        - **Test Accuracy / F1:** about 0.5457 / 0.5696 - the weakest
-          model in the lineup.
+        - **Test Accuracy / F1:** about 0.5435 / 0.5667 - the weakest
+          model in the lineup, and the only one that loses accuracy
+          from the engineered features.
         - **Errors are pretty symmetric** (FP is about FN), the
           opposite of AdaBoost which is very asymmetric.
         """
@@ -866,13 +883,13 @@ def build_pca_knn_notebook() -> Path:
             # 06 - PCA(0.90) + KNN  (the cautionary tale)
 
             This notebook trains the original PCA + KNN pipeline that
-            scored only about 0.515 accuracy. The reason is going to
+            scored only about 0.51 accuracy. The reason is going to
             show up in the cell that prints pca.n_components_: PCA
             keeps exactly 1 component for 90% variance, because the
             nutrition columns with their big outliers hijack the
             projection. After that KNN is doing similarity search on
-            a 1-D projection of the data. See README section 4 Lesson
-            #5.
+            a 1-D projection of the data. See research.md section 4
+            Lesson #5.
 
             The fix for this is in 07_PCA_KNN_Improved.ipynb.
             """
@@ -946,6 +963,7 @@ def build_pca_knn_notebook() -> Path:
                 save_predictions(MODEL_SLUG, ds_name, result["y_pred"])
 
             print_delta(per_ds_results)
+            save_test_index(MODEL_SLUG, y_test)
             display(pd.Series(pca_components_per_dataset, name="components retained at 90% variance").to_frame())
             """
         ),
@@ -963,13 +981,13 @@ def build_pca_knn_notebook() -> Path:
     cells += summary_cells(
         "PCA(0.90) + KNN  (the cautionary tale)",
         """
-        - **Test Accuracy / F1:** about 0.5133 / 0.5578 - barely
-          above the 0.534 majority-class rate.
+        - **Test Accuracy / F1:** about 0.5092 / 0.5508 - below the
+          0.534 majority-class rate.
         - **PCA kept just 1 component** - the diagnostic that pushed
           us to write 07_PCA_KNN_Improved.ipynb.
         - **The lesson:** we should grab structural diagnostics
-          before reasoning only from theory (README section 4 Lesson
-          #5).
+          before reasoning only from theory (research.md section 4
+          Lesson #5).
         """
     )
     return write_nb("06_PCA_KNN.ipynb", cells)
@@ -993,8 +1011,8 @@ def build_pca_knn_improved_notebook() -> Path:
             projection cannot be hijacked by their outlier-dominated
             variance anymore. The recovery is dramatic on the
             dimensionality side (1 -> about 200 components) and
-            meaningful on the accuracy side (+4.5 to +5 pp). See
-            README section 4 Lesson #5.
+            meaningful on the accuracy side (+4.5 to +6.3 pp). See
+            research.md section 4 Lesson #5.
             """
         ),
     ]
@@ -1082,6 +1100,7 @@ def build_pca_knn_improved_notebook() -> Path:
                 save_predictions(MODEL_SLUG, ds_name, result["y_pred"])
 
             print_delta(per_ds_results)
+            save_test_index(MODEL_SLUG, y_test)
             display(pd.DataFrame({
                 "components_retained": pca_components_per_dataset,
                 "expansion_vs_original": {k: f"{v}x" for k, v in pca_components_per_dataset.items()},
@@ -1105,15 +1124,15 @@ def build_pca_knn_improved_notebook() -> Path:
     cells += summary_cells(
         "PCA(0.90) + KNN (Improved)",
         """
-        - **Test Accuracy / F1:** about 0.5630 / 0.5904 - a +4.97 pp
-          on Acc and +3.26 pp on F1 recovery over the unfixed version
+        - **Test Accuracy / F1:** about 0.5726 / 0.6023 - a +6.34 pp
+          on Acc and +5.15 pp on F1 recovery over the unfixed version
           on Advanced.
-        - **Search space grew 182x / 203x** (1 -> 182 components on
+        - **Search space grew 178x / 203x** (1 -> 178 components on
           Advanced, 1 -> 203 on Baseline).
-        - **Only a partial rescue:** still about 4 pp under LR. The
+        - **Only a partial rescue:** still about 3 pp under LR. The
           rest of the gap is the textbook sparse-binary distance
           penalty (which was the original theoretical objection).
-          README section 4 Lesson #5.
+          research.md section 4 Lesson #5.
         """
     )
     return write_nb("07_PCA_KNN_Improved.ipynb", cells)
@@ -1162,10 +1181,10 @@ def build_master_notebook() -> Path:
 
             from src.train_utils import RESULTS_DIR
             from evaluate_all_results import (
-                _load_metrics_files,
-                _order_payloads,
-                _missing_from_preferred,
-                _row_from_payload,
+                load_metrics_files,
+                order_payloads,
+                missing_from_preferred,
+                row_from_payload,
                 build_summary_dataframe,
                 PREFERRED_ORDER,
             )
@@ -1183,8 +1202,8 @@ def build_master_notebook() -> Path:
         ),
         code(
             """
-            payloads = _order_payloads(_load_metrics_files(RESULTS_DIR))
-            missing = _missing_from_preferred(payloads)
+            payloads = order_payloads(load_metrics_files(RESULTS_DIR))
+            missing = missing_from_preferred(payloads)
 
             print(f"Found {len(payloads)} model result file(s).")
             if missing:
@@ -1353,16 +1372,16 @@ def build_master_notebook() -> Path:
             - **Linear interpretable champion:** Logistic Regression
               (calibrated probabilities, signed coefficients).
             - **Predictive champion:** Random Forest - it breaks the
-              linear ceiling by +1.48% Acc / +2.73% F1.
-            - **MLP:** matches LR within noise once we add early
-              stopping. More capacity does not equal more accuracy on
-              this dataset.
+              linear ceiling by +2.28 pp Acc / +3.49 pp F1.
+            - **MLP:** clears the linear ceiling too once we add early
+              stopping (+1.15 pp Acc / +2.27 pp F1 vs LR) - but only
+              then; unregularised it lands far below LR.
             - **KNN (cautionary tale -> algorithmic fix):** the
               diagnostic-driven Improved variant lifts accuracy by
-              about +5 pp just by dropping the outlier-dominated
+              +4.5 to +6.3 pp just by dropping the outlier-dominated
               columns before PCA.
 
-            For the full narrative see README.md.
+            For the full narrative see results/research.md.
             """
         ),
     ]

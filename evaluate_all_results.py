@@ -27,11 +27,10 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from src.train_utils import RESULTS_DIR
+from src.train_utils import DATASETS, RESULTS_DIR
 
 
 METRICS_BASENAME = "metrics.json"
-DATASETS: tuple = ("Baseline", "Advanced")
 
 # the order we want to show the seven models in the table
 PREFERRED_ORDER: tuple = (
@@ -46,7 +45,7 @@ PREFERRED_ORDER: tuple = (
 
 
 # Loading
-def _load_metrics_files(results_dir: Path) -> List[Dict[str, Any]]:
+def load_metrics_files(results_dir: Path) -> List[Dict[str, Any]]:
     """
     This function reads every results/<slug>/metrics.json into a list of dicts
     :param results_dir: the path of the results folder
@@ -74,15 +73,27 @@ def _load_metrics_files(results_dir: Path) -> List[Dict[str, Any]]:
     return payloads
 
 
-def _order_payloads(payloads: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def order_payloads(payloads: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     This function orders the payloads by the preferred order, and anything
     that we didnt put in the preferred order goes after in alphabetical order
     :param payloads: the list of payload dicts
     :return: the ordered list
     """
-    # making a dict from model_name to its payload for quick lookup
-    name_to_payload = {p.get("model_name", ""): p for p in payloads}
+    # making a dict from model_name to its payload for quick lookup. if two
+    # payloads claim the same model_name we keep the last and warn, instead
+    # of silently dropping one
+    name_to_payload: Dict[str, Dict[str, Any]] = {}
+    for p in payloads:
+        name = p.get("model_name", "")
+        if name in name_to_payload:
+            print(
+                f"  [warning] duplicate model_name {name!r} "
+                f"(slugs: {name_to_payload[name].get('_slug')!r} and "
+                f"{p.get('_slug')!r}) — keeping the latter.",
+                file=sys.stderr,
+            )
+        name_to_payload[name] = p
     ordered: List[Dict[str, Any]] = []
     # first we put the ones from the preferred order
     for name in PREFERRED_ORDER:
@@ -94,7 +105,7 @@ def _order_payloads(payloads: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return ordered
 
 
-def _missing_from_preferred(payloads: List[Dict[str, Any]]) -> List[str]:
+def missing_from_preferred(payloads: List[Dict[str, Any]]) -> List[str]:
     """
     This function returns which of the expected models we didnt find
     :param payloads: the list of payload dicts we found
@@ -105,16 +116,18 @@ def _missing_from_preferred(payloads: List[Dict[str, Any]]) -> List[str]:
 
 
 # Summary table
-def _row_from_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+def row_from_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     This function makes one row of the summary table from a single payload
     :param payload: the dict we loaded from metrics.json
     :return: a dict with all the columns we want for this row
     """
     ds = payload.get("datasets", {})
-    # pulling the baseline and advanced results
-    baseline_metrics = ds.get("Baseline", {})
-    advanced_metrics = ds.get("Advanced", {})
+    # pulling the baseline and advanced results (DATASETS comes from
+    # src.train_utils so the key spelling can never drift from the writers)
+    baseline_key, advanced_key = DATASETS
+    baseline_metrics = ds.get(baseline_key, {})
+    advanced_metrics = ds.get(advanced_key, {})
     return {
         "Model":           payload.get("display_name", payload.get("model_name", "?")),
         "Acc (Baseline)":  baseline_metrics.get("accuracy", float("nan")),
@@ -145,13 +158,14 @@ def _format_summary_table(rows) -> str:
     :return: the formatted table string
     """
     df = pd.DataFrame(rows)
-    # for the small deltas we want the +/- sign, for the rest just regular format
-    return df.to_string(
-        index=False,
-        float_format=lambda x: (
-            f"{x:+.4f}" if isinstance(x, float) and abs(x) < 0.05 else f"{x: .4f}"
-        ),
-    )
+    # explicit per-column formatting: the Δ columns always carry a sign, the
+    # metric columns never do (no magnitude-based magic)
+    formatters = {
+        col: (lambda x: f"{x:+.4f}") if col.startswith("Δ") else (lambda x: f"{x: .4f}")
+        for col in df.columns
+        if col != "Model"
+    }
+    return df.to_string(index=False, formatters=formatters)
 
 
 def build_summary_dataframe(results_dir: Path = RESULTS_DIR) -> pd.DataFrame:
@@ -161,8 +175,8 @@ def build_summary_dataframe(results_dir: Path = RESULTS_DIR) -> pd.DataFrame:
     :param results_dir: the results folder path
     :return: the summary DataFrame
     """
-    payloads = _order_payloads(_load_metrics_files(results_dir))
-    return pd.DataFrame([_row_from_payload(p) for p in payloads])
+    payloads = order_payloads(load_metrics_files(results_dir))
+    return pd.DataFrame([row_from_payload(p) for p in payloads])
 
 
 # Cross-model verdict
@@ -233,7 +247,7 @@ def main() -> int:
     print("=" * 72)
     print(f"  Reading metrics from: {RESULTS_DIR}/<model_slug>/metrics.json")
 
-    payloads = _load_metrics_files(RESULTS_DIR)
+    payloads = load_metrics_files(RESULTS_DIR)
     # if we found nothing it means the train scripts didnt run yet
     if not payloads:
         print(
@@ -244,8 +258,8 @@ def main() -> int:
         return 1
 
     # ordering them and checking which ones are missing from the lineup
-    payloads = _order_payloads(payloads)
-    missing = _missing_from_preferred(payloads)
+    payloads = order_payloads(payloads)
+    missing = missing_from_preferred(payloads)
 
     print(f"  Found {len(payloads)} model result file(s).")
     if missing:
@@ -253,7 +267,7 @@ def main() -> int:
     print()
 
     # building the table rows and printing the summary
-    rows = [_row_from_payload(p) for p in payloads]
+    rows = [row_from_payload(p) for p in payloads]
     print("=" * 72)
     print("  SUMMARY — Feature Engineering A/B comparison")
     print("=" * 72)

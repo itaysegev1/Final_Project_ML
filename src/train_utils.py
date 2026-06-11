@@ -39,8 +39,27 @@ from src._constants import RANDOM_STATE  # the single source of truth
 from src.preprocessing import build_preprocessed_datasets
 
 
-# re-export RANDOM_STATE so `from src.train_utils import RANDOM_STATE` works
-__all__ = ["RANDOM_STATE"]
+# the full public API of this module (RANDOM_STATE is a re-export from
+# src._constants so `from src.train_utils import RANDOM_STATE` keeps working)
+__all__ = [
+    "DATASETS",
+    "PROJECT_ROOT",
+    "RANDOM_STATE",
+    "RESULTS_DIR",
+    "build_metrics_payload",
+    "confusion_matrix_figure",
+    "fit_and_score",
+    "load_metrics",
+    "load_preprocessed",
+    "model_results_dir",
+    "print_dataset_block",
+    "print_delta",
+    "roc_curve_figure",
+    "save_figure",
+    "save_metrics",
+    "save_predictions",
+    "save_test_index",
+]
 
 
 # Filesystem contract
@@ -244,6 +263,22 @@ def save_predictions(model_slug: str, dataset: str, y_pred: np.ndarray) -> Path:
         raise ValueError(f"Unknown dataset {dataset!r}; expected one of {DATASETS}.")
     path = model_results_dir(model_slug) / f"predictions_{dataset.lower()}.npy"
     np.save(path, np.asarray(y_pred, dtype=np.int8))
+    return path
+
+
+def save_test_index(model_slug: str, y_test: pd.Series) -> Path:
+    """
+    Save the test split's row index next to the predictions, so the .npy
+    prediction files are self-describing - a consumer can align predictions
+    back to recipes without having to re-derive the split, and a changed
+    upstream data file shows up as an index mismatch instead of a silent
+    misalignment.
+    :param model_slug: the model folder name
+    :param y_test: the test labels series (we persist its index)
+    :return: the Path the file was written to
+    """
+    path = model_results_dir(model_slug) / "test_index.npy"
+    np.save(path, np.asarray(y_test.index, dtype=np.int64))
     return path
 
 

@@ -15,8 +15,6 @@ The re-merge is cheap and it keeps the upstream API stable.
 
 from __future__ import annotations
 
-from typing import Iterable
-
 import matplotlib
 matplotlib.use("Agg")              # so we can save PNGs without a display backend
 import matplotlib.pyplot as plt
@@ -24,12 +22,10 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
-    ConfusionMatrixDisplay,
     accuracy_score,
     confusion_matrix,
     f1_score,
     roc_auc_score,
-    roc_curve,
 )
 
 from src.data_foundation import (
@@ -40,19 +36,21 @@ from src.data_foundation import (
     merge_datasets,
 )
 from src.preprocessing import build_preprocessed_datasets
+from src.train_utils import (
+    confusion_matrix_figure,
+    roc_curve_figure,
+    save_figure,
+)
+# the exact LR hyperparameters are owned by the train script - importing them
+# (instead of copying them) keeps Phase 3 numbers in lockstep with Phase 2
+from train_logistic_regression import MODEL_CONFIG as LR_MODEL_CONFIG
 
-
-from src._constants import RANDOM_STATE  # single source of truth, see src/_constants.py
 TOP_K = 15                          # how many top coefficients per direction
 TOP_CONFIDENCE = 5                  # how many rows we print per confidence bucket
 TITLE_WIDTH = 70                    # truncate titles so the printing stays tidy
 
 # the LR plots go into the same per-model results folder that the LR script uses
-from src.train_utils import RESULTS_DIR as _RESULTS_DIR
-_LR_RESULTS = _RESULTS_DIR / "logistic_regression"
-_LR_RESULTS.mkdir(parents=True, exist_ok=True)
-CM_PNG  = str(_LR_RESULTS / "confusion_matrix.png")
-ROC_PNG = str(_LR_RESULTS / "roc_curve.png")
+LR_SLUG = "logistic_regression"
 
 # the 9 engineered culinary feature names, built from Phase 0 so they will not
 # drift if those constants ever change
@@ -187,55 +185,6 @@ def _print_confidence_groups(
     _emit(f"Top {k} MOST BORDERLINE predictions     (p closest to 0.5):", borderline)
 
 
-# Plots
-def _save_confusion_matrix_plot(cm: np.ndarray, path: str) -> None:
-    """
-    This function saves the confusion matrix as a PNG.
-    :param cm: the confusion matrix
-    :param path: where we want to save the file
-    """
-    fig, ax = plt.subplots(figsize=(6.5, 5.5))
-    disp = ConfusionMatrixDisplay(
-        confusion_matrix=cm,
-        display_labels=["Miss (0)", "Hit (1)"],
-    )
-    disp.plot(ax=ax, cmap="Blues", values_format="d", colorbar=True)
-    ax.set_title("Logistic Regression — Confusion Matrix (Advanced)")
-    ax.set_xlabel("Predicted label")
-    ax.set_ylabel("True label")
-    plt.tight_layout()
-    fig.savefig(path, dpi=200, bbox_inches="tight")
-    plt.close(fig)
-
-
-def _save_roc_plot(y_true: Iterable[int], y_score: Iterable[float], path: str) -> float:
-    """
-    Here we draw the ROC curve and save it as a PNG, with the AUC in the legend.
-    :param y_true: the true labels
-    :param y_score: the predicted probability for class Hit
-    :param path: where we want to save the PNG
-    :return: the AUC we calculated so the caller can sanity check it
-    """
-    fpr, tpr, _ = roc_curve(y_true, y_score)
-    auc = float(roc_auc_score(y_true, y_score))
-
-    fig, ax = plt.subplots(figsize=(6.5, 5.5))
-    ax.plot(fpr, tpr, lw=2.0, label=f"LogReg (AUC = {auc:.4f})")
-    ax.plot([0, 1], [0, 1], linestyle="--", color="gray", lw=1.0,
-            label="Random (AUC = 0.50)")
-    ax.set_xlim(0.0, 1.0)
-    ax.set_ylim(0.0, 1.02)
-    ax.set_xlabel("False Positive Rate")
-    ax.set_ylabel("True Positive Rate (Recall)")
-    ax.set_title("Logistic Regression — ROC Curve (Advanced)")
-    ax.legend(loc="lower right")
-    ax.grid(alpha=0.3)
-    plt.tight_layout()
-    fig.savefig(path, dpi=200, bbox_inches="tight")
-    plt.close(fig)
-    return auc
-
-
 # Entry point
 def main() -> None:
     """
@@ -271,13 +220,9 @@ def main() -> None:
     # reached. liblinear uses coordinate descent (one feature at a time) and it
     # converges fine on this sparse-binary high-dim input. Without convergence
     # the coefficient importance and confidence numbers below would not be
-    # reproducible.
-    lr = LogisticRegression(
-        solver="liblinear",
-        C=1.0,
-        max_iter=5000,
-        random_state=RANDOM_STATE,
-    )
+    # reproducible. The exact config (solver/C/max_iter/random_state) is
+    # imported from train_logistic_regression so the two stay in lockstep.
+    lr = LogisticRegression(**LR_MODEL_CONFIG)
     lr.fit(X_train_adv, y_train)
 
     y_pred = lr.predict(X_test_adv)
@@ -306,16 +251,31 @@ def main() -> None:
     print("=" * 72)
     _print_confidence_groups(proba_hit, y_test, test_titles, k=TOP_CONFIDENCE)
 
-    # 3. Plots
+    # 3. Plots — we reuse the shared figure helpers from src.train_utils so
+    # the Phase 3 plots and the train-script plots stay identical in style
     print("\n" + "=" * 72)
     print("  3) PLOTS")
     print("=" * 72)
-    _save_confusion_matrix_plot(cm, CM_PNG)
-    auc_check = _save_roc_plot(y_test, proba_hit, ROC_PNG)
+    fig_cm = confusion_matrix_figure(
+        cm, title="Logistic Regression — Confusion Matrix (Advanced)",
+        figsize=(6.5, 5.5),
+    )
+    cm_path = save_figure(LR_SLUG, "confusion_matrix.png", fig_cm)
+    plt.close(fig_cm)
+
+    fig_roc, auc_check = roc_curve_figure(
+        y_test, proba_hit,
+        title="Logistic Regression — ROC Curve (Advanced)",
+        figsize=(6.5, 5.5),
+        model_label="LogReg",
+    )
+    roc_path = save_figure(LR_SLUG, "roc_curve.png", fig_roc)
+    plt.close(fig_roc)
+
     # the AUC from the plot should match exactly what we already computed
     assert abs(auc_check - test_auc) < 1e-9, "AUC mismatch between plot and metrics."
-    print(f"  Wrote {CM_PNG}")
-    print(f"  Wrote {ROC_PNG}")
+    print(f"  Wrote {cm_path}")
+    print(f"  Wrote {roc_path}")
 
     print("\nDone. Inspect the borderline recipes for your qualitative culinary write-up.")
 

@@ -34,16 +34,16 @@
       "fn_rate": 0.42989214175654855
     },
     "Advanced": {
-      "accuracy": 0.562962962962963,
-      "f1": 0.5903831319105168,
+      "accuracy": 0.5725651577503429,
+      "f1": 0.6023481368044921,
       "confusion_matrix": {
-        "tn": 904,
-        "fp": 794,
-        "fn": 799,
-        "tp": 1148
+        "tn": 907,
+        "fp": 791,
+        "fn": 767,
+        "tp": 1180
       },
-      "fp_rate": 0.46760895170789163,
-      "fn_rate": 0.41037493579866463
+      "fp_rate": 0.4658421672555948,
+      "fn_rate": 0.3939393939393939
     }
   },
   "extras": {
@@ -63,10 +63,10 @@
     },
     "pca_components_retained": {
       "Baseline": 203,
-      "Advanced": 182
+      "Advanced": 178
     },
     "pca_variance_threshold": 0.9,
     "knn_n_neighbors": 5,
-    "roc_auc_advanced": 0.5848396826866012
+    "roc_auc_advanced": 0.5858945809535736
   }
 }

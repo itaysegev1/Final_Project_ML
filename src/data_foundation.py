@@ -34,7 +34,7 @@ recipes and matches the two files cleanly 1:1. Real exact-duplicate recipes
 (the same title and the same nutrition and the same rating) are collapsed
 with keep="first", because they don't carry any extra signal.
 
-A small note on the helper scripts that were provided (utils.py, recipe.py)
+A small note on the helper scripts that were provided (legacy/utils.py, legacy/recipe.py)
 We reviewed both. recipe.py is a BeautifulSoup/urllib web-scraper used to
 BUILD the dataset from live HTML — not relevant for loading the already-saved
 files (and importing it would also require bs4). utils.py::sublists_to_binaries
@@ -271,16 +271,18 @@ class CulinaryFeatureExtractor(BaseEstimator, TransformerMixin):
         appears (as a whole word/phrase) in the recipe's combined
         directions + ingredients text, else it is 0.
 
-    The six keyword groups below are EMPTY on purpose — we populate them with
-    the domain knowledge either at construction time or later, for example:
+    The six keyword groups default to empty so the class itself stays a
+    generic, reusable transformer. The curated culinary domain knowledge
+    lives in the module-level CULINARY_KEYWORDS dict, and the canonical way
+    to build a populated instance is make_culinary_extractor():
 
-        fx = CulinaryFeatureExtractor()
-        fx.high_heat_techniques = ["sear", "broil", "grill", "char"]
-        ...
+        fx = make_culinary_extractor()
         features = fx.fit_transform(X_train)
 
     While a group is empty its binary column is emitted as all-zeros, so the
     output schema stays stable no matter which groups have been filled.
+    (build_preprocessed_datasets guards against accidentally shipping such
+    all-zero columns into the model matrices — see src/preprocessing.py.)
     """
 
     #: the attribute names of the six keyword groups, in the output order
@@ -303,12 +305,12 @@ class CulinaryFeatureExtractor(BaseEstimator, TransformerMixin):
         self,
         directions_col: str = "directions",
         ingredients_col: str = "ingredients",
-        high_heat_techniques: Sequence[str] = [],
-        low_and_slow_techniques: Sequence[str] = [],
-        technical_execution: Sequence[str] = [],
-        prep_and_patience: Sequence[str] = [],
-        flavor_development: Sequence[str] = [],
-        premium_ingredients: Sequence[str] = [],
+        high_heat_techniques: Sequence[str] = (),
+        low_and_slow_techniques: Sequence[str] = (),
+        technical_execution: Sequence[str] = (),
+        prep_and_patience: Sequence[str] = (),
+        flavor_development: Sequence[str] = (),
+        premium_ingredients: Sequence[str] = (),
     ) -> None:
         """
         In this constructor we just save the parameters as the sklearn estimator
@@ -326,13 +328,13 @@ class CulinaryFeatureExtractor(BaseEstimator, TransformerMixin):
         self.directions_col = directions_col
         self.ingredients_col = ingredients_col
 
-        # The domain keyword groups (EMPTY by default — we populate them later).
-        # Per the scikit-learn estimator contract, parameters are stored
-        # verbatim here: no copy, no validation, no transformation. That is
-        # what lets clone()/GridSearchCV/cross_val_score round-trip these
-        # groups correctly. We populate a group by ASSIGNING a fresh list, like:
-        #     fx.high_heat_techniques = ["sear", "broil", ...]
-        # (we assign a new list rather than .append() to the shared default)
+        # The domain keyword groups (empty tuples by default — the curated
+        # domain knowledge lives in CULINARY_KEYWORDS below, and
+        # make_culinary_extractor() is the canonical way to get a fully
+        # populated instance). Per the scikit-learn estimator contract,
+        # parameters are stored verbatim here: no copy, no validation, no
+        # transformation. That is what lets clone()/GridSearchCV/
+        # cross_val_score round-trip these groups correctly.
         self.high_heat_techniques = high_heat_techniques
         self.low_and_slow_techniques = low_and_slow_techniques
         self.technical_execution = technical_execution
@@ -445,6 +447,94 @@ class CulinaryFeatureExtractor(BaseEstimator, TransformerMixin):
         return r"\b(?:" + "|".join(escaped_keywords) + r")\b"
 
 
+# Culinary domain knowledge — the single source of truth for the keyword groups.
+# Some keywords intentionally appear in more than one group ("smoke" is both a
+# low-and-slow technique and a flavor-development method, "temper"/"proof"/
+# "bloom" are both technical execution and prep-and-patience, etc.) — the six
+# binary features describe overlapping culinary concepts, not a partition.
+# Note also that premium_ingredients is deliberately broad: it covers luxury
+# items (truffle, caviar, wagyu) AND specialty/condiment ingredients (fish
+# sauce, miso, harissa) that signal an ambitious, flavor-forward recipe.
+CULINARY_KEYWORDS: dict = {
+    "high_heat_techniques": (
+        "sear", "saute", "sauté", "broil", "stir-fry", "pan-fry", "grill",
+        "deep-fry", "blanch", "char", "blacken", "flambe", "flambé",
+        "flash-fry", "scald", "scorch", "blister", "wok-fry", "sear-roast",
+    ),
+    "low_and_slow_techniques": (
+        "sous vide", "confit", "braise", "slow-roast", "simmer", "stew",
+        "poach", "sweat", "render", "coddle", "steep", "infuse",
+        "barbecue", "bbq", "smoke", "baste", "slow-cook", "roast",
+    ),
+    "technical_execution": (
+        "temper", "emulsify", "deglaze", "clarify", "monter au beurre",
+        "puree", "purée", "strain", "knead", "muddle", "macerate", "score",
+        "dredge", "whip", "skim", "butterfly", "truss", "chiffonade",
+        "supreme", "debone", "fillet", "zest", "bind", "thicken", "mount",
+        "crimp", "pipe", "julienne", "brunoise", "batonnet", "oblique",
+        "paysanne", "shave", "mandoline", "mortar and pestle",
+        "ice-cream maker", "spice mill", "double boiler",
+        "candy thermometer", "deep-fat thermometer", "steamer insert",
+        "dariole molds", "springform pan", "dutch oven", "cleaver",
+        "blowtorch", "piping bag", "immersion circulator",
+        "sous vide machine", "vacuum sealer", "proof", "punch down",
+        "blind bake", "dock", "flute", "laminate", "bloom", "prove",
+    ),
+    "prep_and_patience": (
+        "marinate", "brine", "ferment", "overnight", "rest", "cure",
+        "soak", "rise", "proof", "age", "pickle", "steep", "dry-rub",
+        "bloom", "activate", "temper",
+    ),
+    "flavor_development": (
+        "reduce", "caramelize", "smoke", "jus", "char", "glaze", "infuse",
+        "zest", "baste", "sweat", "render", "extract", "curing",
+        "smoke-infuse", "dry-roast", "aioli", "hollandaise", "bearnaise",
+        "bechamel", "veloute", "espagnole", "demi-glace", "roux", "slurry",
+        "chutney", "compote", "pesto", "chimichurri", "gastrique",
+        "coulis", "gremolata", "mignonette", "compound butter",
+    ),
+    "premium_ingredients": (
+        "truffle", "truffles", "saffron", "bone marrow", "wagyu", "caviar",
+        "dry-aged", "foie gras", "kobe", "edible gold", "vanilla bean",
+        "chanterelle", "morel", "porcini", "lobster", "langoustine",
+        "oyster", "scallops", "prosciutto", "iberico", "quail",
+        "duck breast", "sweetbreads", "duck confit", "cognac", "armagnac",
+        "pancetta", "guanciale", "uni", "bottarga", "matsutake", "beluga",
+        "fish sauce", "oyster sauce", "hoisin", "sriracha", "gochujang",
+        "miso", "mirin", "sake", "tahini", "curry paste", "garam masala",
+        "harissa", "zaatar", "sumac", "tamarind", "preserved lemon",
+        "chipotle", "ancho", "guajillo", "masa", "tomatillo", "dashi",
+        "katsuobushi",
+    ),
+}
+
+# the dict keys must match the extractor's group attributes exactly
+assert set(CULINARY_KEYWORDS) == set(CulinaryFeatureExtractor.KEYWORD_GROUPS), (
+    "CULINARY_KEYWORDS keys drifted from CulinaryFeatureExtractor.KEYWORD_GROUPS"
+)
+
+
+def make_culinary_extractor(
+    directions_col: str = "directions",
+    ingredients_col: str = "ingredients",
+) -> CulinaryFeatureExtractor:
+    """
+    This factory returns a CulinaryFeatureExtractor populated with the curated
+    CULINARY_KEYWORDS. This is the instance the real pipeline must use — a bare
+    CulinaryFeatureExtractor() has empty groups and emits all-zero has_*
+    columns (which is exactly the bug a code audit caught in the first version
+    of phase 1, where the keywords were defined but never injected).
+    :param directions_col: name of the directions column in X
+    :param ingredients_col: name of the ingredients column in X
+    :return: a fully populated CulinaryFeatureExtractor
+    """
+    return CulinaryFeatureExtractor(
+        directions_col=directions_col,
+        ingredients_col=ingredients_col,
+        **CULINARY_KEYWORDS,
+    )
+
+
 # Orchestration
 def build_dataset(
     verbose: bool = True,
@@ -481,63 +571,12 @@ def main() -> None:
     print(f"y_test  shape : {y_test.shape}  (hit rate {y_test.mean():.3f})")
 
     # Culinary domain knowledge injection
-    # Keyword groups curated from the professional culinary domain knowledge.
+    # The keyword groups come from the module-level CULINARY_KEYWORDS constant
+    # (same instance the real Phase 1 pipeline uses via make_culinary_extractor,
+    # so this sanity panel exercises exactly what the models will see).
     # CulinaryFeatureExtractor is stateless w.r.t. these lists, but we still
-    # fit on X_train only to keep the standard sklearn discipline (and so this
-    # slot is the right place to add any training-statistics-based features
-    # later without restructuring the pipeline).
-    extractor = CulinaryFeatureExtractor(
-        high_heat_techniques=[
-            "sear", "saute", "sauté", "broil", "stir-fry", "pan-fry", "grill",
-            "deep-fry", "blanch", "char", "blacken", "flambe", "flambé",
-            "flash-fry", "scald", "scorch", "blister", "wok-fry", "sear-roast",
-        ],
-        low_and_slow_techniques=[
-            "sous vide", "confit", "braise", "slow-roast", "simmer", "stew",
-            "poach", "sweat", "render", "coddle", "steep", "infuse",
-            "barbecue", "bbq", "smoke", "baste", "slow-cook", "roast",
-        ],
-        technical_execution=[
-            "temper", "emulsify", "deglaze", "clarify", "monter au beurre",
-            "puree", "purée", "strain", "knead", "muddle", "macerate", "score",
-            "dredge", "whip", "skim", "butterfly", "truss", "chiffonade",
-            "supreme", "debone", "fillet", "zest", "bind", "thicken", "mount",
-            "crimp", "pipe", "julienne", "brunoise", "batonnet", "oblique",
-            "paysanne", "shave", "mandoline", "mortar and pestle",
-            "ice-cream maker", "spice mill", "double boiler",
-            "candy thermometer", "deep-fat thermometer", "steamer insert",
-            "dariole molds", "springform pan", "dutch oven", "cleaver",
-            "blowtorch", "piping bag", "immersion circulator",
-            "sous vide machine", "vacuum sealer", "proof", "punch down",
-            "blind bake", "dock", "flute", "laminate", "bloom", "prove",
-        ],
-        prep_and_patience=[
-            "marinate", "brine", "ferment", "overnight", "rest", "cure",
-            "soak", "rise", "proof", "age", "pickle", "steep", "dry-rub",
-            "bloom", "activate", "temper",
-        ],
-        flavor_development=[
-            "reduce", "caramelize", "smoke", "jus", "char", "glaze", "infuse",
-            "zest", "baste", "sweat", "render", "extract", "curing",
-            "smoke-infuse", "dry-roast", "aioli", "hollandaise", "bearnaise",
-            "bechamel", "veloute", "espagnole", "demi-glace", "roux", "slurry",
-            "chutney", "compote", "pesto", "chimichurri", "gastrique",
-            "coulis", "gremolata", "mignonette", "compound butter",
-        ],
-        premium_ingredients=[
-            "truffle", "truffles", "saffron", "bone marrow", "wagyu", "caviar",
-            "dry-aged", "foie gras", "kobe", "edible gold", "vanilla bean",
-            "chanterelle", "morel", "porcini", "lobster", "langoustine",
-            "oyster", "scallops", "prosciutto", "iberico", "quail",
-            "duck breast", "sweetbreads", "duck confit", "cognac", "armagnac",
-            "pancetta", "guanciale", "uni", "bottarga", "matsutake", "beluga",
-            "fish sauce", "oyster sauce", "hoisin", "sriracha", "gochujang",
-            "miso", "mirin", "sake", "tahini", "curry paste", "garam masala",
-            "harissa", "zaatar", "sumac", "tamarind", "preserved lemon",
-            "chipotle", "ancho", "guajillo", "masa", "tomatillo", "dashi",
-            "katsuobushi",
-        ],
-    )
+    # fit on X_train only to keep the standard sklearn discipline.
+    extractor = make_culinary_extractor()
 
     # fit on train only, transform both splits (leakage-free)
     culinary_train = extractor.fit_transform(X_train)

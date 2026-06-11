@@ -21,6 +21,7 @@ from sklearn.ensemble import RandomForestClassifier
 
 from src.train_utils import (
     DATASETS,
+    PROJECT_ROOT,
     RANDOM_STATE,
     build_metrics_payload,
     confusion_matrix_figure,
@@ -32,6 +33,7 @@ from src.train_utils import (
     save_figure,
     save_metrics,
     save_predictions,
+    save_test_index,
 )
 
 
@@ -121,6 +123,7 @@ def main() -> None:
             advanced_feature_names = X_train.columns
 
     print_delta(per_ds_results)
+    save_test_index(MODEL_SLUG, y_test)
 
     # building the confusion matrix array for the Advanced fit
     adv = per_ds_results["Advanced"]
@@ -169,7 +172,7 @@ def main() -> None:
         },
     )
     metrics_path = save_metrics(MODEL_SLUG, payload)
-    print(f"\n  Wrote {metrics_path.relative_to(metrics_path.parent.parent.parent)}")
+    print(f"\n  Wrote {metrics_path.relative_to(PROJECT_ROOT)}")
 
 
 if __name__ == "__main__":

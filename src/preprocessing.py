@@ -34,6 +34,7 @@ from sklearn.preprocessing import RobustScaler
 from src.data_foundation import (
     CulinaryFeatureExtractor,
     build_dataset,
+    make_culinary_extractor,
 )
 
 
@@ -136,11 +137,18 @@ def _build_culinary_pipeline() -> Pipeline:
     ColumnTransformer counts on the fact that CulinaryFeatureExtractor.transform
     returns a DataFrame with named columns, so we can pick CULINARY_NUMERIC by
     name and passthrough the 6 binary has_* columns.
+
+    IMPORTANT: the extractor MUST come from make_culinary_extractor() so the
+    curated CULINARY_KEYWORDS are actually injected. A bare
+    CulinaryFeatureExtractor() has empty keyword groups and silently emits
+    all-zero has_* columns — that exact bug shipped in the first version of
+    this file, and _assert_no_dead_binary_features below now guards against
+    any regression of it.
     :return: the culinary Pipeline
     """
     return Pipeline(
         steps=[
-            ("extract", CulinaryFeatureExtractor()),
+            ("extract", make_culinary_extractor()),
             (
                 "scale_numeric",
                 ColumnTransformer(
@@ -180,6 +188,26 @@ def build_advanced_preprocessor(
 
 
 # Fit / transform orchestration
+
+def _assert_no_dead_binary_features(X_train_out: pd.DataFrame) -> None:
+    """
+    This guard fails loud if any engineered has_* column is all-zeros on the
+    TRAIN split. An all-zero binary feature means the keyword group behind it
+    never fired on ~14.5k recipes — in practice that means the keywords were
+    never injected into the extractor (the bug the first version of this
+    pipeline shipped with). Better to crash here than to train and report on
+    dead features.
+    :param X_train_out: the transformed train matrix to check
+    """
+    has_cols = [c for c in X_train_out.columns if c.startswith("has_")]
+    dead = [c for c in has_cols if int(X_train_out[c].sum()) == 0]
+    if dead:
+        raise RuntimeError(
+            f"Engineered binary features are all-zero on the train split: {dead}. "
+            "The CulinaryFeatureExtractor was probably built without its keyword "
+            "groups — use make_culinary_extractor() (see src/data_foundation.py)."
+        )
+
 
 def fit_transform_pair(
     preprocessor: ColumnTransformer,
@@ -229,6 +257,14 @@ def build_preprocessed_datasets(
     # Advanced
     advanced = build_advanced_preprocessor(numeric, text, binary_tags)
     X_train_advanced, X_test_advanced = fit_transform_pair(advanced, X_train, X_test)
+
+    # guard: the engineered binary features must actually fire on real recipes
+    _assert_no_dead_binary_features(X_train_advanced)
+
+    if verbose:
+        has_cols = [c for c in X_train_advanced.columns if c.startswith("has_")]
+        rates = {c: f"{100 * X_train_advanced[c].mean():.1f}%" for c in has_cols}
+        print(f"[culinary] keyword-group activation on train: {rates}")
 
     return (
         X_train_baseline, X_test_baseline,

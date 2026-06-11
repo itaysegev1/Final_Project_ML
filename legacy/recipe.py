@@ -79,7 +79,7 @@ class FN_Recipe(Recipe):
         return [dd['content'] for dd in page.find_all('meta', {'itemprop': 'description'})][-1].encode('utf-8').strip()
 
 
-# No scripting shit apparently needed
+# No scripting apparently needed
 class EP_Recipe(Recipe):
     rating = None
     calories = None

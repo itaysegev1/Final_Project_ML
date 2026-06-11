@@ -29,6 +29,7 @@ from sklearn.linear_model import LogisticRegression
 
 from src.train_utils import (
     DATASETS,
+    PROJECT_ROOT,
     RANDOM_STATE,
     build_metrics_payload,
     confusion_matrix_figure,
@@ -40,6 +41,7 @@ from src.train_utils import (
     save_figure,
     save_metrics,
     save_predictions,
+    save_test_index,
 )
 
 
@@ -91,6 +93,7 @@ def main() -> None:
 
     # printing the difference between Baseline and Advanced
     print_delta(per_ds_results)
+    save_test_index(MODEL_SLUG, y_test)
 
     # Plots (Advanced fit)
     advanced_result = per_ds_results["Advanced"]
@@ -125,7 +128,7 @@ def main() -> None:
         extras={"roc_auc_advanced": auc},
     )
     metrics_path = save_metrics(MODEL_SLUG, payload)
-    print(f"  Wrote {metrics_path.relative_to(metrics_path.parent.parent.parent)}")
+    print(f"  Wrote {metrics_path.relative_to(PROJECT_ROOT)}")
 
 
 if __name__ == "__main__":

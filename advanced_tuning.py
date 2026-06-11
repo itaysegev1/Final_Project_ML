@@ -1,18 +1,26 @@
 """
 This script is Phase 4 of the project - the advanced tuning and top feature
-extraction. Both analyses run against the same converged LogisticRegression
-that Phase 3 used.
+extraction. Both analyses run against the same LogisticRegression
+configuration that Phases 2-3 use (imported, not copied).
 
 What we do here:
 
-  1. A decision-threshold sweep. For thresholds t in {0.30, 0.35, ..., 0.70} we
-     report F1, accuracy, FP-rate, FN-rate and the Balance Ratio
-     (= FP_rate / FN_rate). The default t=0.5 leaves the model over-predicting
-     Hit (Phase 2 / 3 already showed FP-rate ~ 0.48 vs FN-rate ~ 0.32). Raising
-     t pushes the balance toward 1.0 at some F1 cost - this table makes that
-     trade-off explicit so we can pick a single threshold for the report.
+  1. A leakage-free decision-threshold selection. Selecting an operating
+     threshold by sweeping the TEST set would itself be a (mild) form of
+     test-set tuning, so the selection is done properly:
 
-     How to read the Balance Ratio:
+       a. We hold out 15% of the TRAIN split as a stratified validation set
+          (the test split is never touched during selection).
+       b. We fit the LR on the remaining 85%, sweep thresholds
+          t in {0.30, 0.35, ..., 0.70} on the validation set, and select
+          two candidate operating points there: the best-F1 threshold and
+          the most-balanced threshold.
+       c. We then refit the LR on the FULL train split and report the
+          selected thresholds' performance on the held-out test set. A
+          descriptive test-set sweep is also printed for transparency, but
+          it plays no role in the selection.
+
+     How to read the Balance Ratio (= FP_rate / FN_rate):
          >1  -> model favors Hit (more false alarms than misses)
          <1  -> model favors Miss
          ~1  -> the errors are symmetric
@@ -26,8 +34,8 @@ What we do here:
      culinary feature that cracks either list is called out.
 
 We do NOT retune the model here (C, regularization, solver stay the same as
-Phase 3) - this phase is post-hoc analysis on the fixed model, not a new
-training run. Reusing the same fit makes the numbers here match Phase 3 exactly.
+Phases 2-3, imported from train_logistic_regression) - this phase is post-hoc
+analysis, not a new training run.
 """
 
 from __future__ import annotations
@@ -38,15 +46,20 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
+from sklearn.model_selection import train_test_split
 
 from src.data_foundation import CulinaryFeatureExtractor
 from src.preprocessing import build_preprocessed_datasets
+# the exact LR hyperparameters are owned by the train script - importing them
+# (instead of copying them) keeps Phase 4 in lockstep with Phases 2-3
+from train_logistic_regression import MODEL_CONFIG as LR_MODEL_CONFIG
 
 
 from src._constants import RANDOM_STATE  # single source of truth, see src/_constants.py
 THRESHOLDS = np.linspace(0.30, 0.70, 9)   # 0.30, 0.35, ..., 0.70
 TOP_K = 20
 DEFAULT_THRESHOLD = 0.50                  # the baseline we compare against
+VALIDATION_FRACTION = 0.15                # held out of TRAIN for threshold selection
 
 CULINARY_FEATURE_NAMES: tuple = (
     tuple(CulinaryFeatureExtractor.BASELINE_FEATURES)
@@ -129,45 +142,34 @@ def _log_distance_to_balanced(row: Dict[str, Any]) -> float:
     return abs(np.log(bal))
 
 
-def _print_threshold_summary(rows: List[Dict[str, Any]]) -> None:
+def _summarize_row(label: str, r: Dict[str, Any]) -> None:
     """
-    Here we highlight the max-F1 row and the most-balanced row, and the trade-off
-    that we pay relative to the default t=0.5.
-    :param rows: the list of metric dictionaries from the threshold sweep
+    Small helper that prints a single highlighted threshold row.
+    :param label: the row label
+    :param r: one metric dictionary from _evaluate_at_threshold
     """
-    default_row = next(
-        (r for r in rows if abs(r["threshold"] - DEFAULT_THRESHOLD) < 1e-9),
-        None,
+    bal = r["balance_ratio"]
+    bal_str = f"{bal:.3f}" if np.isfinite(bal) else "inf"
+    print(
+        f"  {label:<34} threshold={r['threshold']:.2f}   "
+        f"F1={r['f1']:.4f}   Acc={r['accuracy']:.4f}   "
+        f"FP/FN rates={r['fp_rate']:.4f}/{r['fn_rate']:.4f}   "
+        f"balance={bal_str}"
     )
-    best_f1 = max(rows, key=lambda r: r["f1"])
-    most_balanced = min(rows, key=_log_distance_to_balanced)
 
-    def _summarize(label: str, r: Dict[str, Any]) -> None:
-        # small helper to print a single highlighted row in the same format
-        bal = r["balance_ratio"]
-        bal_str = f"{bal:.3f}" if np.isfinite(bal) else "inf"
-        print(
-            f"  {label:<28} threshold={r['threshold']:.2f}   "
-            f"F1={r['f1']:.4f}   "
-            f"FP/FN rates={r['fp_rate']:.4f}/{r['fn_rate']:.4f}   "
-            f"balance={bal_str}"
-        )
 
-    print()
-    if default_row is not None:
-        _summarize("Default (t=0.50):", default_row)
-    _summarize("Best F1:", best_f1)
-    _summarize("Most balanced (|log| min):", most_balanced)
-
-    if default_row is not None:
-        # now we tell the reader how much F1 we pay for the balance
-        delta_f1 = most_balanced["f1"] - default_row["f1"]
-        print(
-            f"\n  Trade-off at the most-balanced threshold vs the default: "
-            f"ΔF1 = {delta_f1:+.4f}  "
-            f"(balance shifts from {default_row['balance_ratio']:.3f} "
-            f"to {most_balanced['balance_ratio']:.3f})"
-        )
+def _select_thresholds(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """
+    Here we pick the two candidate operating points from a sweep: the max-F1
+    row and the most-balanced row (min |log(balance)|). The rows passed in
+    must come from the VALIDATION sweep — selection never sees the test set.
+    :param rows: the list of metric dictionaries from the validation sweep
+    :return: {"best_f1": row, "most_balanced": row}
+    """
+    return {
+        "best_f1":       max(rows, key=lambda r: r["f1"]),
+        "most_balanced": min(rows, key=_log_distance_to_balanced),
+    }
 
 
 # Top-coefficient extraction
@@ -221,8 +223,9 @@ def _print_top_coefficients(coefs: pd.Series, k: int) -> None:
 def main() -> None:
     """
     This is the main function that runs the whole Phase 4 - it loads the Advanced
-    data, fits the LR (same hyperparameters as Phase 3), then runs the threshold
-    sweep and the top-K coefficient extraction.
+    data, selects operating thresholds on a validation split held out of train,
+    evaluates them once on the test set, and then runs the top-K coefficient
+    extraction on the full-train LR fit (same hyperparameters as Phases 2-3).
     """
     print("=" * 72)
     print("  PHASE 4 — ADVANCED TUNING & TOP FEATURE EXTRACTION")
@@ -237,18 +240,7 @@ def main() -> None:
     print(f"  X_train shape: {X_train_adv.shape}")
     print(f"  X_test  shape: {X_test_adv.shape}")
 
-    print("\nTraining LogisticRegression (solver='liblinear', same as Phase 3)...")
-    # same LR config as Phase 3 - we deliberately do not retune anything here
-    lr = LogisticRegression(
-        solver="liblinear",
-        C=1.0,
-        max_iter=5000,
-        random_state=RANDOM_STATE,
-    )
-    lr.fit(X_train_adv, y_train)
-    proba_hit = lr.predict_proba(X_test_adv)[:, 1]
-
-    # 1. Threshold tuning
+    # 1. Threshold tuning — selection on validation, evaluation on test
     print("\n" + "=" * 72)
     print("  1) THRESHOLD TUNING — addressing FP/FN asymmetry")
     print("=" * 72)
@@ -259,10 +251,50 @@ def main() -> None:
         "    ≈1 → symmetric errors\n"
     )
 
-    # build the table by evaluating each threshold, then print it
-    threshold_rows = [_evaluate_at_threshold(y_test, proba_hit, t) for t in THRESHOLDS]
-    _print_threshold_table(threshold_rows)
-    _print_threshold_summary(threshold_rows)
+    # 1a. selection sweep on a validation split held out of TRAIN — the test
+    # split plays no part in choosing the operating thresholds
+    X_tr, X_val, y_tr, y_val = train_test_split(
+        X_train_adv, y_train,
+        test_size=VALIDATION_FRACTION,
+        stratify=y_train,
+        random_state=RANDOM_STATE,
+    )
+    print(f"  1a) SELECTION sweep on a {VALIDATION_FRACTION:.0%} validation split "
+          f"held out of train (n={len(y_val)}):\n")
+    lr_select = LogisticRegression(**LR_MODEL_CONFIG)
+    lr_select.fit(X_tr, y_tr)
+    val_proba = lr_select.predict_proba(X_val)[:, 1]
+    val_rows = [_evaluate_at_threshold(y_val, val_proba, t) for t in THRESHOLDS]
+    _print_threshold_table(val_rows)
+
+    selected = _select_thresholds(val_rows)
+    print("\n  Selected on validation:")
+    _summarize_row("Best F1 (val):", selected["best_f1"])
+    _summarize_row("Most balanced (val, |log| min):", selected["most_balanced"])
+
+    # 1b. final model on the FULL train split; the descriptive test sweep is
+    # printed for transparency but the operating points were already chosen
+    print("\nTraining the final LogisticRegression on the full train split "
+          "(config imported from train_logistic_regression)...")
+    lr = LogisticRegression(**LR_MODEL_CONFIG)
+    lr.fit(X_train_adv, y_train)
+    proba_hit = lr.predict_proba(X_test_adv)[:, 1]
+
+    print(f"\n  1b) DESCRIPTIVE sweep on the test set (n={len(y_test)}) — "
+          "not used for selection:\n")
+    test_rows = [_evaluate_at_threshold(y_test, proba_hit, t) for t in THRESHOLDS]
+    _print_threshold_table(test_rows)
+
+    # 1c. the validation-selected thresholds, evaluated once on the test set
+    print("\n  1c) Validation-selected operating points, evaluated on TEST:")
+    default_test = _evaluate_at_threshold(y_test, proba_hit, DEFAULT_THRESHOLD)
+    _summarize_row("Default (t=0.50):", default_test)
+    for label, sel_row in (
+        ("Best F1 (selected on val):", selected["best_f1"]),
+        ("Most balanced (selected on val):", selected["most_balanced"]),
+    ):
+        test_eval = _evaluate_at_threshold(y_test, proba_hit, sel_row["threshold"])
+        _summarize_row(label, test_eval)
 
     # 2. Top coefficients
     print("\n" + "=" * 72)

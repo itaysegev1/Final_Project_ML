@@ -23,102 +23,102 @@
       "fn_rate": 0.29173086800205444
     },
     "Advanced": {
-      "accuracy": 0.6178326474622771,
-      "f1": 0.6707634129047506,
+      "accuracy": 0.6238683127572017,
+      "f1": 0.6753492777646223,
       "confusion_matrix": {
-        "tn": 833,
-        "fp": 865,
-        "fn": 528,
-        "tp": 1419
+        "tn": 848,
+        "fp": 850,
+        "fn": 521,
+        "tp": 1426
       },
-      "fp_rate": 0.5094228504122497,
-      "fn_rate": 0.2711864406779661
+      "fp_rate": 0.5005889281507656,
+      "fn_rate": 0.26759116589625065
     }
   },
   "extras": {
     "top_k_feature_importances": [
       {
         "feature": "avg_words_per_step",
-        "importance": 0.04989408496420063
-      },
-      {
-        "feature": "sodium",
-        "importance": 0.04330914134904125
+        "importance": 0.04748189662424573
       },
       {
         "feature": "calories",
-        "importance": 0.043295590594632616
+        "importance": 0.04179642316613265
+      },
+      {
+        "feature": "sodium",
+        "importance": 0.04163731906436132
       },
       {
         "feature": "num_ingredients",
-        "importance": 0.041709531393529904
+        "importance": 0.03961037782158975
       },
       {
         "feature": "fat",
-        "importance": 0.038088170896544093
+        "importance": 0.03622529129443348
       },
       {
         "feature": "protein",
-        "importance": 0.03541610132644343
+        "importance": 0.034234996842990875
       },
       {
         "feature": "num_steps",
-        "importance": 0.028808879771004495
+        "importance": 0.027066780251099827
       },
       {
         "feature": "bon app\u00e9tit",
-        "importance": 0.00994081184944685
+        "importance": 0.00955773018431133
+      },
+      {
+        "feature": "has_technical_execution",
+        "importance": 0.009308966809198082
+      },
+      {
+        "feature": "has_flavor_development",
+        "importance": 0.008645544599023579
       },
       {
         "feature": "quick & easy",
-        "importance": 0.00877608908895754
+        "importance": 0.008628211529991364
+      },
+      {
+        "feature": "has_low_and_slow_techniques",
+        "importance": 0.008253927404299427
       },
       {
         "feature": "summer",
-        "importance": 0.008031108940311083
+        "importance": 0.007547239772945107
+      },
+      {
+        "feature": "has_high_heat_techniques",
+        "importance": 0.007323640846229096
       },
       {
         "feature": "gourmet",
-        "importance": 0.007731451154696525
+        "importance": 0.0073154727709773
       },
       {
         "feature": "winter",
-        "importance": 0.00706096455599168
+        "importance": 0.006913348207470077
+      },
+      {
+        "feature": "has_prep_and_patience",
+        "importance": 0.00671160809717305
       },
       {
         "feature": "bake",
-        "importance": 0.006888282506696947
+        "importance": 0.006438839953132999
+      },
+      {
+        "feature": "has_premium_ingredients",
+        "importance": 0.006301922153797394
       },
       {
         "feature": "vegetarian",
-        "importance": 0.006337132533788408
-      },
-      {
-        "feature": "fall",
-        "importance": 0.006319484693699125
-      },
-      {
-        "feature": "onion",
-        "importance": 0.005824487065412721
-      },
-      {
-        "feature": "healthy",
-        "importance": 0.005609334468678641
-      },
-      {
-        "feature": "tomato",
-        "importance": 0.005606594066805426
-      },
-      {
-        "feature": "wheat/gluten-free",
-        "importance": 0.005595884484928063
-      },
-      {
-        "feature": "vegetable",
-        "importance": 0.005558207985001478
+        "importance": 0.006234358128772441
       }
     ],
     "feature_importance_plot": "feature_importance.png",
-    "roc_auc_advanced": 0.6590892454520652
+    "roc_auc_advanced": 0.6586686473043304
   }
 }

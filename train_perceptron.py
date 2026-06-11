@@ -24,6 +24,7 @@ from sklearn.linear_model import Perceptron
 
 from src.train_utils import (
     DATASETS,
+    PROJECT_ROOT,
     RANDOM_STATE,
     build_metrics_payload,
     confusion_matrix_figure,
@@ -35,6 +36,7 @@ from src.train_utils import (
     save_figure,
     save_metrics,
     save_predictions,
+    save_test_index,
 )
 import numpy as np
 
@@ -88,6 +90,7 @@ def main() -> None:
 
     # printing the delta between Baseline and Advanced
     print_delta(per_ds_results)
+    save_test_index(MODEL_SLUG, y_test)
 
     # Plots (from the Advanced fit)
     advanced_result = per_ds_results["Advanced"]
@@ -100,9 +103,11 @@ def main() -> None:
     save_figure(MODEL_SLUG, "confusion_matrix.png", fig_cm)
     plt.close(fig_cm)
 
-    # the Perceptron doesn't always have predict_proba, so we only plot the ROC if we got something
+    # the Perceptron doesn't have predict_proba, so the ROC (and its AUC in the
+    # extras) is computed from decision_function scores when available
+    auc = None
     if advanced_result["proba_hit"] is not None:
-        fig_roc, _ = roc_curve_figure(
+        fig_roc, auc = roc_curve_figure(
             y_test, advanced_result["proba_hit"],
             title=f"{DISPLAY_NAME} — ROC Curve (Advanced)",
             model_label=DISPLAY_NAME,
@@ -120,9 +125,10 @@ def main() -> None:
         n_test=len(y_test),
         random_state=RANDOM_STATE,
         per_dataset_results=per_ds_results,
+        extras={"roc_auc_advanced": auc} if auc is not None else None,
     )
     metrics_path = save_metrics(MODEL_SLUG, payload)
-    print(f"\n  Wrote {metrics_path.relative_to(metrics_path.parent.parent.parent)}")
+    print(f"\n  Wrote {metrics_path.relative_to(PROJECT_ROOT)}")
 
 
 if __name__ == "__main__":

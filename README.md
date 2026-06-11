@@ -65,7 +65,13 @@ automatically.
 │   ├── pca_knn_improved/
 │   ├── random_forest/
 │   ├── mlp/
+│   ├── mlp_overfit/                   the deliberately unregularised MLP baseline
+│   │                                  (train_mlp.py --no-early-stopping) — feeds
+│   │                                  the early-stopping ablation
 │   └── research.md                    the long-form research report
+│
+├── legacy/                            the dataset author's original scraper/helpers
+│                                      (kept for provenance, imported by nothing)
 │
 ├── train_perceptron.py                headless CLI entry points — one per model.
 ├── train_logistic_regression.py       Each imports from src/, trains on Baseline +
@@ -73,14 +79,18 @@ automatically.
 ├── train_pca_knn.py                   results/<slug>/.
 ├── train_pca_knn_improved.py
 ├── train_random_forest.py
-├── train_mlp.py
+├── train_mlp.py                       also supports --no-early-stopping for the
+│                                      reproducible overfit baseline (see research.md §3.6)
 ├── evaluate_all_results.py            pure-read aggregator — reads every
 │                                      results/<slug>/metrics.json and prints the
 │                                      side-by-side 7-model summary table.
 ├── analysis.py                        LR interpretability — top coefficients,
 │                                      confidence buckets, ROC + confusion plots.
-├── advanced_tuning.py                 threshold sweep + top-20 LR features.
+├── advanced_tuning.py                 threshold selection (on a validation split)
+│                                      + top-20 LR features.
 │
+├── requirements.txt                   pinned dependency versions — the reproducibility
+│                                      guarantee only holds with these exact versions
 └── README.md                          this file
 ```
 
@@ -90,6 +100,16 @@ automatically.
 You can drive this project from the command line OR from the Jupyter notebooks.
 Both paths read the same data, use the same `src/` helpers, and write to the
 same `results/<slug>/` directories.
+
+### Setup
+
+```bash
+pip install -r requirements.txt
+```
+
+The versions are pinned on purpose — sklearn estimator behaviour changes
+between releases, so the "identical metrics from a clean checkout" guarantee
+only holds with these exact versions.
 
 ### Option A — Headless command line
 
@@ -107,13 +127,15 @@ python train_pca_knn.py
 python train_pca_knn_improved.py
 python train_random_forest.py
 python train_mlp.py
+python train_mlp.py --no-early-stopping   # optional: the overfit baseline for
+                                          # the §3.6 ablation -> results/mlp_overfit/
 
 # Pure-read aggregator — prints the 7-row summary + cross-model verdict.
 python evaluate_all_results.py
 
 # Optional post-hoc analyses
 python analysis.py          # LR coefficients, confidence buckets, ROC/CM
-python advanced_tuning.py   # threshold sweep + top-20 LR features
+python advanced_tuning.py   # threshold selection (validation split) + top-20 LR features
 ```
 
 ### Option B — Jupyter notebooks
@@ -147,6 +169,7 @@ each `results/<slug>/` looks like this:
 | `metrics.json` | accuracy, F1, confusion matrix, per-class error rates, model config + extras |
 | `predictions_baseline.npy` | int8 test predictions on the Baseline matrix |
 | `predictions_advanced.npy` | int8 test predictions on the Advanced matrix |
+| `test_index.npy` | the test split's row index — makes the prediction files self-describing |
 | `confusion_matrix.png` | annotated heatmap (Advanced fit) |
 | `roc_curve.png` | ROC + AUC (Advanced fit) |
 | `feature_importance.png` *(Random Forest only)* | top-20 impurity-based bar chart |
