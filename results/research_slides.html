@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Predicting Recipe Success on Epicurious — Research Slides</title>
+<style>
+  :root {
+    --bg: #0e1117;
+    --bg-soft: #161b24;
+    --card: #1c2330;
+    --card-2: #222b3a;
+    --text: #e8ecf3;
+    --muted: #9aa7ba;
+    --accent: #ffb347;
+    --accent-2: #ff7a59;
+    --green: #4ade80;
+    --red: #f87171;
+    --blue: #60a5fa;
+    --purple: #c084fc;
+    --border: #2c3648;
+    --mono: "SF Mono", "Fira Code", Menlo, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    overflow: hidden;
+  }
+
+  /* ---------- deck chrome ---------- */
+  #progress {
+    position: fixed; top: 0; left: 0; height: 4px; width: 0%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    z-index: 50; transition: width .35s ease;
+  }
+  #counter {
+    position: fixed; top: 14px; right: 18px; z-index: 50;
+    font-family: var(--mono); font-size: 12px; color: var(--muted);
+    background: rgba(22,27,36,.8); border: 1px solid var(--border);
+    padding: 4px 10px; border-radius: 999px; backdrop-filter: blur(4px);
+  }
+  #menuBtn {
+    position: fixed; top: 12px; left: 16px; z-index: 50;
+    background: rgba(22,27,36,.8); border: 1px solid var(--border);
+    color: var(--muted); font-size: 13px; padding: 5px 12px;
+    border-radius: 999px; cursor: pointer; backdrop-filter: blur(4px);
+  }
+  #menuBtn:hover { color: var(--text); border-color: var(--accent); }
+  .navArrow {
+    position: fixed; top: 50%; transform: translateY(-50%); z-index: 50;
+    width: 46px; height: 46px; border-radius: 50%;
+    background: rgba(28,35,48,.85); border: 1px solid var(--border);
+    color: var(--text); font-size: 20px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .2s; user-select: none;
+  }
+  .navArrow:hover { border-color: var(--accent); color: var(--accent); }
+  #prevBtn { left: 14px; } #nextBtn { right: 14px; }
+  #dots {
+    position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 7px; z-index: 50;
+  }
+  #dots span {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--border); cursor: pointer; transition: all .25s;
+  }
+  #dots span.on { background: var(--accent); transform: scale(1.35); }
+
+  /* ---------- TOC overlay ---------- */
+  #toc {
+    position: fixed; inset: 0; z-index: 100; display: none;
+    background: rgba(10,13,18,.96); padding: 60px 8vw; overflow-y: auto;
+  }
+  #toc.open { display: block; }
+  #toc h2 { color: var(--accent); margin-bottom: 24px; font-size: 26px; }
+  #toc ol { list-style: none; counter-reset: t; columns: 2; column-gap: 48px; }
+  #toc li {
+    counter-increment: t; padding: 10px 14px; margin-bottom: 6px;
+    border: 1px solid var(--border); border-radius: 10px; cursor: pointer;
+    break-inside: avoid; transition: all .15s; font-size: 15px;
+  }
+  #toc li::before {
+    content: counter(t, decimal-leading-zero);
+    font-family: var(--mono); color: var(--accent); margin-right: 12px; font-size: 12px;
+  }
+  #toc li:hover { background: var(--card); border-color: var(--accent); }
+  #toc .hint { color: var(--muted); margin-top: 26px; font-size: 13px; }
+
+  /* ---------- slides ---------- */
+  .slide {
+    position: absolute; inset: 0; padding: 56px 7vw 70px;
+    display: none; flex-direction: column; justify-content: center;
+    overflow-y: auto; animation: none;
+  }
+  .slide.active { display: flex; animation: slideIn .45s ease both; }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(26px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  .kicker {
+    font-family: var(--mono); font-size: 13px; letter-spacing: 2.5px;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 14px;
+  }
+  h1 { font-size: clamp(34px, 5vw, 58px); line-height: 1.12; font-weight: 800; }
+  h2 { font-size: clamp(26px, 3.4vw, 40px); margin-bottom: 22px; font-weight: 750; }
+  h3 { font-size: 18px; margin-bottom: 10px; color: var(--accent); }
+  p.lead { font-size: clamp(15px, 1.5vw, 19px); color: var(--muted); max-width: 64ch; line-height: 1.65; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; align-items: start; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px 22px;
+  }
+  .card h3 { margin-bottom: 8px; }
+  .card p, .card li { font-size: 14.5px; color: var(--muted); line-height: 1.6; }
+  .card ul { padding-left: 18px; }
+  .stat { text-align: center; padding: 22px 10px; }
+  .stat .num { font-size: clamp(26px, 3vw, 40px); font-weight: 800; color: var(--accent); font-family: var(--mono); }
+  .stat .lbl { font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .pill {
+    display: inline-block; font-family: var(--mono); font-size: 12px;
+    border: 1px solid var(--border); border-radius: 999px; padding: 3px 11px;
+    color: var(--muted); margin: 3px 4px 3px 0;
+  }
+  .good { color: var(--green); } .bad { color: var(--red); }
+  .hl { color: var(--accent); font-weight: 650; }
+  code, .mono { font-family: var(--mono); font-size: .92em; color: var(--blue); }
+  .codebox {
+    background: #0b0e14; border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 18px; font-family: var(--mono); font-size: 13px;
+    color: #cdd6e4; line-height: 1.7; overflow-x: auto; white-space: pre;
+  }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 9px 12px; text-align: right; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; text-transform: uppercase; letter-spacing: .6px; }
+  td:first-child, th:first-child { text-align: left; }
+  tbody tr { transition: background .15s; }
+  tbody tr:hover { background: var(--card-2); }
+  tr.champ { background: rgba(255,179,71,.08); }
+  tr.champ td:first-child { color: var(--accent); font-weight: 700; }
+  td.mono { font-family: var(--mono); }
+
+  /* ---------- bar charts ---------- */
+  .bars .row { display: grid; grid-template-columns: 215px 1fr 64px; gap: 10px; align-items: center; margin-bottom: 7px; }
+  .bars .name { font-size: 13px; color: var(--muted); text-align: right; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bars .track { background: #0b0e14; border-radius: 6px; height: 16px; overflow: hidden; }
+  .bars .fill { height: 100%; width: 0; border-radius: 6px; transition: width .9s cubic-bezier(.2,.8,.2,1); }
+  .bars .val { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .fill.blue { background: linear-gradient(90deg,#3b82f6,#60a5fa); }
+  .fill.orange { background: linear-gradient(90deg,#f59e0b,#ffb347); }
+  .fill.green { background: linear-gradient(90deg,#22c55e,#4ade80); }
+  .fill.red { background: linear-gradient(90deg,#ef4444,#f87171); }
+  .fill.purple { background: linear-gradient(90deg,#a855f7,#c084fc); }
+
+  /* coefficient mirror chart */
+  .coefRow { display: grid; grid-template-columns: 1fr 150px 1fr; align-items: center; gap: 10px; margin-bottom: 6px; font-size: 13px; }
+  .coefRow .cname { text-align: center; color: var(--muted); font-family: var(--mono); font-size: 12px; }
+  .coefRow .side { height: 15px; display: flex; }
+  .coefRow .side.l { justify-content: flex-end; }
+  .coefRow .cfill { height: 100%; width: 0; border-radius: 5px; transition: width .8s ease; }
+
+  /* threshold slider slide */
+  .sliderWrap { margin: 18px 0 8px; }
+  input[type=range] {
+    width: 100%; appearance: none; height: 8px; border-radius: 5px;
+    background: linear-gradient(90deg, var(--red), var(--accent), var(--blue));
+    outline: none; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    appearance: none; width: 26px; height: 26px; border-radius: 50%;
+    background: #fff; border: 4px solid var(--accent); cursor: grab;
+    box-shadow: 0 2px 10px rgba(0,0,0,.5);
+  }
+  .tickRow { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .badge {
+    display: inline-block; padding: 4px 12px; border-radius: 999px;
+    font-size: 12.5px; font-weight: 600; border: 1px solid;
+  }
+  .badge.trap { color: var(--red); border-color: var(--red); background: rgba(248,113,113,.1); }
+  .badge.balanced { color: var(--green); border-color: var(--green); background: rgba(74,222,128,.1); }
+  .badge.default { color: var(--blue); border-color: var(--blue); background: rgba(96,165,250,.1); }
+
+  details {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 13px 18px; margin-bottom: 9px; cursor: pointer;
+  }
+  details summary { font-weight: 650; font-size: 15px; list-style: none; display: flex; align-items: center; gap: 10px; }
+  details summary::before { content: "▸"; color: var(--accent); transition: transform .2s; }
+  details[open] summary::before { transform: rotate(90deg); }
+  details p { margin-top: 10px; color: var(--muted); font-size: 14px; line-height: 1.65; }
+  .lessonNum {
+    font-family: var(--mono); color: var(--bg); background: var(--accent);
+    border-radius: 6px; width: 24px; height: 24px; display: inline-flex;
+    align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0;
+  }
+
+  .flow { display: flex; gap: 0; align-items: stretch; flex-wrap: wrap; }
+  .flow .step {
+    flex: 1; min-width: 150px; background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px; margin-right: 34px; position: relative;
+  }
+  .flow .step:last-child { margin-right: 0; }
+  .flow .step:not(:last-child)::after {
+    content: "→"; position: absolute; right: -27px; top: 50%; transform: translateY(-50%);
+    color: var(--accent); font-size: 22px;
+  }
+  .flow .step b { display: block; font-size: 14.5px; margin-bottom: 6px; color: var(--accent); }
+  .flow .step span { font-size: 12.5px; color: var(--muted); line-height: 1.5; display: block; }
+
+  .vs { display: grid; grid-template-columns: 1fr 64px 1fr; align-items: center; gap: 8px; }
+  .vs .mid { text-align: center; font-size: 26px; color: var(--accent); font-weight: 800; }
+  .ok-b { border-color: rgba(74,222,128,.45); }
+  .bad-b { border-color: rgba(248,113,113,.45); }
+
+  .footer-note { margin-top: 22px; font-size: 13px; color: var(--muted); }
+  .toggleBtns { display: flex; gap: 8px; margin-bottom: 14px; }
+  .toggleBtns button {
+    background: var(--card); color: var(--muted); border: 1px solid var(--border);
+    border-radius: 999px; padding: 6px 18px; font-size: 13px; cursor: pointer;
+  }
+  .toggleBtns button.on { color: var(--bg); background: var(--accent); border-color: var(--accent); font-weight: 700; }
+
+  @media (max-width: 880px) {
+    .grid2, .grid3, .grid4 { grid-template-columns: 1fr; }
+    #toc ol { columns: 1; }
+    .slide { padding: 46px 6vw 80px; }
+    .bars .row { grid-template-columns: 130px 1fr 56px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="progress"></div>
+<button id="menuBtn">☰ Contents</button>
+<div id="counter">1 / 17</div>
+<div class="navArrow" id="prevBtn">‹</div>
+<div class="navArrow" id="nextBtn">›</div>
+<div id="dots"></div>
+
+<div id="toc">
+  <h2>Contents</h2>
+  <ol id="tocList"></ol>
+  <p class="hint">Click a slide to jump · <b>←/→</b> navigate · <b>Space</b> next · <b>M</b> toggle this menu · <b>Esc</b> close</p>
+</div>
+
+<!-- ============ 1. TITLE ============ -->
+<section class="slide" data-title="Title">
+  <div class="kicker">Machine Learning · Final Project</div>
+  <h1>Predicting Recipe Success<br>on <span style="color:var(--accent)">Epicurious</span></h1>
+  <p class="lead" style="margin-top:20px">A Hit/Miss classification study — 18,223 recipes, 7 classifiers,
+     one silent bug caught by an audit, and the lessons that mattered more than the leaderboard.</p>
+  <div style="margin-top:30px">
+    <span class="pill">binary classification</span>
+    <span class="pill">Hit = rating ≥ 4.0</span>
+    <span class="pill">687 features</span>
+    <span class="pill">random_state = 42</span>
+    <span class="pill">scikit-learn</span>
+  </div>
+  <p class="footer-note">Itay Segev · navigate with ← → or the arrows · press <b>M</b> for the table of contents</p>
+</section>
+
+<!-- ============ 2. THE TASK ============ -->
+<section class="slide" data-title="The Task & Dataset">
+  <div class="kicker">The Task</div>
+  <h2>Will this recipe be a Hit or a Miss?</h2>
+  <p class="lead">Each recipe carries a nutrition profile, ~674 editorial binary tags, and free-text
+     directions &amp; ingredients. The target: <span class="hl">Hit (rating ≥ 4.0)</span> vs
+     <span class="hl">Miss (rating &lt; 4.0)</span>.</p>
+  <div class="grid4" style="margin-top:26px">
+    <div class="card stat"><div class="num">18,223</div><div class="lbl">clean merged recipes</div></div>
+    <div class="card stat"><div class="num">53.4%</div><div class="lbl">Hit rate (near-balanced)</div></div>
+    <div class="card stat"><div class="num">14,578 / 3,645</div><div class="lbl">train / test (80/20 stratified)</div></div>
+    <div class="card stat"><div class="num">678→687</div><div class="lbl">Baseline → Advanced columns</div></div>
+  </div>
+  <div class="card" style="margin-top:20px">
+    <h3>Known label limitation</h3>
+    <p>≈9% of recipes carry rating <b>0.000</b>, which conflates “rated terribly” with
+       “never rated”. All of them land in the Miss class — label noise that likely depresses
+       every model’s ceiling. (research.md §5.3)</p>
+  </div>
+</section>
+
+<!-- ============ 3. STAGE 0: MERGE ============ -->
+<section class="slide" data-title="Stage 0 — Data Foundation">
+  <div class="kicker">Stage 0 · src/data_foundation.py</div>
+  <h2>Two files, no shared key — and a Cartesian trap</h2>
+  <div class="grid2">
+    <div class="card bad-b">
+      <h3 style="color:var(--red)">What didn’t work</h3>
+      <ul>
+        <li><b>Positional join:</b> the CSV and JSON are sorted differently — only <span class="bad">2.8%</span> of rows align.</li>
+        <li><b>Title-only join:</b> ~2,300 duplicated titles (“Chicken Soup” ×N) → a many-to-many <i>Cartesian explosion</i> of corrupted cross-matched rows.</li>
+      </ul>
+    </div>
+    <div class="card ok-b">
+      <h3 style="color:var(--green)">The composite-key fix</h3>
+      <p>Fingerprint each recipe with <code>title + rating + calories + protein + fat + sodium</code>
+         (numbers rounded to 3 decimals so both files format identically), de-duplicate each side,
+         then a validated <code>1:1</code> inner join.</p>
+      <p style="margin-top:8px">→ <span class="good">18,223</span> clean, 1:1-validated matches.</p>
+    </div>
+  </div>
+  <div class="flow" style="margin-top:22px">
+    <div class="step"><b>Load</b><span>epi_r.csv (20,052) + full_format_recipes.json (20,130)</span></div>
+    <div class="step"><b>Merge</b><span>composite key, validate 1:1</span></div>
+    <div class="step"><b>Binarize</b><span>y = rating ≥ 4.0</span></div>
+    <div class="step"><b>Split</b><span>80/20 stratified, before any fitting</span></div>
+  </div>
+</section>
+
+<!-- ============ 4. STAGE 1: SCALING ============ -->
+<section class="slide" data-title="Stage 1 — Preprocessing">
+  <div class="kicker">Stage 1 · src/preprocessing.py</div>
+  <h2>Outliers broke the scaler before any model ran</h2>
+  <div class="vs">
+    <div class="card bad-b">
+      <h3 style="color:var(--red)">StandardScaler</h3>
+      <p>Scraping artifacts (impossible calorie/sodium values) absorb nearly all variance.</p>
+      <p style="margin-top:10px;font-family:var(--mono);font-size:20px" class="bad">fat std ≈ 0.034</p>
+      <p>The feature space collapses — fatal for distance-based and L2 models.</p>
+    </div>
+    <div class="mid">vs</div>
+    <div class="card ok-b">
+      <h3 style="color:var(--green)">RobustScaler</h3>
+      <p>Centers on the <b>median</b>, scales by the <b>IQR</b> — both robust to outliers.</p>
+      <p style="margin-top:10px;font-family:var(--mono);font-size:20px" class="good">fat IQR ≈ 0.962</p>
+      <p>Healthy spread restored on the same column.</p>
+    </div>
+  </div>
+  <div class="card" style="margin-top:20px">
+    <h3>The elegant pairing</h3>
+    <p><code>SimpleImputer(strategy="median")</code> + RobustScaler: ~21% of nutrition values are missing;
+       median-imputed values land at <b>exactly 0.0</b> in scaled space — the neutral “no information” position.
+       Every transformer is <code>.fit()</code> on train only — <span class="hl">zero leakage</span>.</p>
+  </div>
+</section>
+
+<!-- ============ 5. FEATURE ENGINEERING ============ -->
+<section class="slide" data-title="Feature Engineering — Two Matrices">
+  <div class="kicker">Stage 1 · The A/B Setup</div>
+  <h2>Baseline vs Advanced: a controlled experiment</h2>
+  <div class="grid2">
+    <div class="card">
+      <h3>Baseline · 678 cols</h3>
+      <p>4 robust-scaled nutrition columns + 674 raw binary tags. The control to beat.</p>
+      <h3 style="margin-top:14px">Advanced · 687 cols</h3>
+      <p>Baseline + 9 engineered features from the recipe text:
+         3 numerics (<code>num_steps</code>, <code>num_ingredients</code>, <code>avg_words_per_step</code>)
+         + 6 keyword binaries (<code>has_*</code>).</p>
+      <p style="margin-top:10px">Same rows, same split — any metric difference is attributable
+         to the 9 columns alone.</p>
+    </div>
+    <div class="card">
+      <h3>Keyword-group activation (train)</h3>
+      <div class="bars" data-anim>
+        <div class="row"><div class="name">low_and_slow</div><div class="track"><div class="fill orange" data-w="78"></div></div><div class="val">39.0%</div></div>
+        <div class="row"><div class="name">technical_execution</div><div class="track"><div class="fill orange" data-w="72.2"></div></div><div class="val">36.1%</div></div>
+        <div class="row"><div class="name">flavor_development</div><div class="track"><div class="fill orange" data-w="69.6"></div></div><div class="val">34.8%</div></div>
+        <div class="row"><div class="name">high_heat</div><div class="track"><div class="fill orange" data-w="58.4"></div></div><div class="val">29.2%</div></div>
+        <div class="row"><div class="name">prep_and_patience</div><div class="track"><div class="fill orange" data-w="34"></div></div><div class="val">17.0%</div></div>
+        <div class="row"><div class="name">premium_ingredients</div><div class="track"><div class="fill orange" data-w="29.2"></div></div><div class="val">14.6%</div></div>
+      </div>
+      <p style="margin-top:10px">Healthy firing rates — far from degenerate in either direction.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 6. THE BUG ============ -->
+<section class="slide" data-title="The Dead-Feature Audit (the Bug)">
+  <div class="kicker">§2.5.1 · The Audit</div>
+  <h2>The bug that almost shipped: six features of pure zeros</h2>
+  <p class="lead">The first pipeline version defined the keyword lists — but never injected them.
+     The extractor was constructed <b>bare</b>, and its schema-stability contract quietly emitted
+     all-zero <code>has_*</code> columns. No crash, plausible shapes, reasonable metrics.</p>
+  <div class="grid3" style="margin-top:22px">
+    <div class="card bad-b">
+      <h3 style="color:var(--red)">Symptom</h3>
+      <p>All six <code>has_*</code> columns identically 0 on both splits, in every model run.
+         An entire interpretive story was written about features that didn’t exist.</p>
+    </div>
+    <div class="card">
+      <h3>Diagnosis</h3>
+      <p>One line: <code>X.filter(like="has_").sum()</code> on the train split.
+         The same class of structural check as reading <code>pca.n_components_</code> (Lesson #5).</p>
+    </div>
+    <div class="card ok-b">
+      <h3 style="color:var(--green)">Fix + Guard</h3>
+      <p>Keywords moved to <code>CULINARY_KEYWORDS</code>; the pipeline uses
+         <code>make_culinary_extractor()</code>; and the build now <b>raises</b> if any engineered
+         binary is all-zero on train.</p>
+    </div>
+  </div>
+  <div class="card" style="margin-top:18px">
+    <h3>After the fix</h3>
+    <p>RF Advanced accuracy moved 0.6178 → <span class="good">0.6239</span>, and all six keyword features
+       entered RF’s top-20 importances. <span class="hl">Lesson #7: a feature pipeline should fail loud when
+       a feature is degenerate — models happily train around it and report nothing.</span></p>
+  </div>
+</section>
+
+<!-- ============ 7. ARCHITECTURE ============ -->
+<section class="slide" data-title="Architecture & the 42 Guarantee">
+  <div class="kicker">§2.6 · MLOps Architecture</div>
+  <h2>Seven independent trainers, one JSON contract</h2>
+  <div class="flow">
+    <div class="step"><b>src/ package</b><span>data_foundation → preprocessing → train_utils. One shared pipeline for CLI + notebooks.</span></div>
+    <div class="step"><b>train_*.py × 7</b><span>each model owns its entry point; writes results/&lt;slug&gt;/metrics.json + predictions + plots.</span></div>
+    <div class="step"><b>Aggregator</b><span>evaluate_all_results.py trains nothing — reads every metrics.json, prints the 7-row verdict.</span></div>
+  </div>
+  <div class="grid2" style="margin-top:20px">
+    <div class="card">
+      <h3>The “42 Guarantee”</h3>
+      <p>The literal <code>42</code> is bound in <b>exactly one place</b>: <code>src/_constants.py</code>.
+         Every split, PCA, forest, and MLP reads it from there. Within a pinned environment
+         (<code>requirements.txt</code>), a clean checkout reproduces every metrics.json bit-for-bit.</p>
+    </div>
+    <div class="card">
+      <h3>Honesty note</h3>
+      <p>The seed guarantee does <b>not</b> survive dependency upgrades — sklearn behaviour changes
+         between releases. Reproducibility = same code + same data + <span class="hl">same environment</span>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 8. CONVERGENCE ============ -->
+<section class="slide" data-title="Solver Convergence — lbfgs → liblinear">
+  <div class="kicker">§2.4 · A Correctness Bug Disguised as a Warning</div>
+  <h2>The 99-point probability swing</h2>
+  <p class="lead">Logistic Regression’s default <code>lbfgs</code> solver never converged on the
+     sparse 687-dim input — even at <code>max_iter = 5000</code>. The smoking gun was one recipe:</p>
+  <div class="card" style="margin-top:20px">
+    <div class="vs">
+      <div style="text-align:center">
+        <p class="lbl" style="color:var(--muted);font-size:13px">max_iter = 2000</p>
+        <p style="font-family:var(--mono);font-size:34px" class="good">p(Hit) = 0.9997</p>
+      </div>
+      <div class="mid">⚡</div>
+      <div style="text-align:center">
+        <p class="lbl" style="color:var(--muted);font-size:13px">max_iter = 5000</p>
+        <p style="font-family:var(--mono);font-size:34px" class="bad">p(Hit) = 0.0000</p>
+      </div>
+    </div>
+    <p style="text-align:center;color:var(--muted);margin-top:10px;font-size:14px">
+      “Lamb Köfte with Tarator Sauce” — same model, same data, different iteration budget.</p>
+  </div>
+  <div class="card" style="margin-top:18px">
+    <h3>Fix &amp; lesson</h3>
+    <p>Switched to <code>liblinear</code> (coordinate descent) → clean convergence, reproducible
+       per-recipe probabilities. <span class="hl">Aggregate metrics looked fine the whole time:
+       stable accuracy does not imply a converged model.</span> (Lesson #2)</p>
+  </div>
+</section>
+
+<!-- ============ 9. RESULTS TABLE ============ -->
+<section class="slide" data-title="Stage 2 — The 7-Model Showdown">
+  <div class="kicker">Stage 2 · Final Results (§5.1)</div>
+  <h2>Seven classifiers, two matrices</h2>
+  <div class="toggleBtns">
+    <button id="btnAcc" class="on">Accuracy</button>
+    <button id="btnF1">F1</button>
+  </div>
+  <div class="card" style="padding:10px 14px">
+    <table id="resultsTable">
+      <thead><tr><th>Model</th><th>Baseline</th><th>Advanced</th><th>Δ (features)</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="footer-note">Positive Δ = the engineered culinary features helped. Hover a row to highlight ·
+     toggle Accuracy/F1 above. <b>Random Forest</b> is the champion on both metrics; both non-linear
+     models clear the linear ceiling.</p>
+</section>
+
+<!-- ============ 10. SUCCESS / DISASTER ============ -->
+<section class="slide" data-title="Stage 3 — Recipe for Success vs Disaster">
+  <div class="kicker">Stage 3 · analysis.py · LR coefficients (§3.4)</div>
+  <h2>Recipe for Success vs Recipe for Disaster</h2>
+  <div class="coefChart" data-anim id="coefChart"></div>
+  <div class="grid2" style="margin-top:14px">
+    <div class="card">
+      <h3 style="color:var(--green)">Hit clusters</h3>
+      <p><b>Occasion-driven:</b> kentucky derby, pasadena (Rose Bowl), sangria, kahlúa, sukkot —
+         elevated expectations, generous ratings. <b>Premium proteins:</b> brisket, trout.</p>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--red)">Miss clusters &amp; leakage</h3>
+      <p><b>Restriction/afterthought:</b> whole wheat, leftovers, slow cooker.
+         <b>Editorial leakage:</b> #cakeweek, friendsgiving, and geographic tags (pittsburgh, lancaster) —
+         metadata, not cooking.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 11. THRESHOLD SLIDER ============ -->
+<section class="slide" data-title="Stage 4 — Interactive Threshold Tuning">
+  <div class="kicker">Stage 4 · advanced_tuning.py (§3.3) — try it yourself</div>
+  <h2>Drag the decision threshold</h2>
+  <p class="lead" style="font-size:15px">Selection was done on a <b>validation split</b> (never the test set);
+     below is the descriptive <b>test</b> sweep so you can feel the trade-off.</p>
+  <div class="sliderWrap">
+    <input type="range" id="thrSlider" min="0" max="8" step="1" value="4">
+    <div class="tickRow"><span>0.30</span><span>0.35</span><span>0.40</span><span>0.45</span><span>0.50</span><span>0.55</span><span>0.60</span><span>0.65</span><span>0.70</span></div>
+  </div>
+  <div style="margin:10px 0 14px"><span id="thrBadge" class="badge default">t = 0.50 · the default</span></div>
+  <div class="grid4">
+    <div class="card stat"><div class="num" id="vF1">0.6405</div><div class="lbl">F1</div></div>
+    <div class="card stat"><div class="num" id="vAcc">0.6011</div><div class="lbl">Accuracy</div></div>
+    <div class="card stat"><div class="num" id="vBal">1.41</div><div class="lbl">Balance (FP/FN)</div></div>
+    <div class="card stat"><div class="num" id="vHits">57.5%</div><div class="lbl">Predicted “Hit”</div></div>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <div class="bars">
+      <div class="row"><div class="name">FP-rate</div><div class="track"><div class="fill red" id="fpBar" style="width:47.2%"></div></div><div class="val" id="fpVal">0.472</div></div>
+      <div class="row"><div class="name">FN-rate</div><div class="track"><div class="fill blue" id="fnBar" style="width:33.5%"></div></div><div class="val" id="fnVal">0.335</div></div>
+    </div>
+    <p style="margin-top:10px;font-size:13.5px;color:var(--muted)" id="thrStory"></p>
+  </div>
+</section>
+
+<!-- ============ 12. RF INVERSION ============ -->
+<section class="slide" data-title="Random Forest — The Inversion">
+  <div class="kicker">§3.5 · The Most Informative Finding</div>
+  <h2>RF breaks the ceiling — and flips the feature ranking</h2>
+  <div class="grid2">
+    <div>
+      <div class="card" style="margin-bottom:14px">
+        <h3>vs Logistic Regression (Advanced)</h3>
+        <p style="font-family:var(--mono);font-size:19px">Acc <span class="good">0.6239 (+2.28pp)</span> ·
+           F1 <span class="good">0.6753 (+3.49pp)</span></p>
+      </div>
+      <div class="card">
+        <h3>Why the inversion?</h3>
+        <p>L2 penalises coefficient magnitude → collinear features split the credit and shrink together.
+           Trees pick the <b>single best splitter</b> per node — collinearity stops being a penalty,
+           and continuous features offer far more split points than 0/1 tags.</p>
+        <p style="margin-top:8px"><span class="hl">Feature utility is a property of the
+           (feature × model class) pair.</span> (Lesson #3)</p>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Top-10 importances (Gini)</h3>
+      <div class="bars" data-anim>
+        <div class="row"><div class="name">avg_words_per_step</div><div class="track"><div class="fill green" data-w="100"></div></div><div class="val">.0475</div></div>
+        <div class="row"><div class="name">calories</div><div class="track"><div class="fill blue" data-w="88"></div></div><div class="val">.0418</div></div>
+        <div class="row"><div class="name">sodium</div><div class="track"><div class="fill blue" data-w="87.6"></div></div><div class="val">.0416</div></div>
+        <div class="row"><div class="name">num_ingredients</div><div class="track"><div class="fill green" data-w="83.4"></div></div><div class="val">.0396</div></div>
+        <div class="row"><div class="name">fat</div><div class="track"><div class="fill blue" data-w="76.2"></div></div><div class="val">.0362</div></div>
+        <div class="row"><div class="name">protein</div><div class="track"><div class="fill blue" data-w="72"></div></div><div class="val">.0342</div></div>
+        <div class="row"><div class="name">num_steps</div><div class="track"><div class="fill green" data-w="57"></div></div><div class="val">.0271</div></div>
+        <div class="row"><div class="name">bon appétit (tag)</div><div class="track"><div class="fill purple" data-w="20.2"></div></div><div class="val">.0096</div></div>
+        <div class="row"><div class="name">has_technical_execution</div><div class="track"><div class="fill orange" data-w="19.6"></div></div><div class="val">.0093</div></div>
+        <div class="row"><div class="name">has_flavor_development</div><div class="track"><div class="fill orange" data-w="18.1"></div></div><div class="val">.0086</div></div>
+      </div>
+      <p style="margin-top:10px;font-size:13px">
+        <span style="color:var(--green)">■</span> engineered numeric ·
+        <span style="color:var(--blue)">■</span> nutrition ·
+        <span style="color:var(--accent)">■</span> engineered keyword ·
+        <span style="color:var(--purple)">■</span> tag —
+        all six <code>has_*</code> features land in the top 20 (LR ranked them 512–642 / 687).</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 13. MLP ============ -->
+<section class="slide" data-title="MLP — Overfit vs Early Stopping">
+  <div class="kicker">§3.6 · One Architecture, Two Fates</div>
+  <h2>The same network, 4 pp apart — only the stopping rule differs</h2>
+  <div class="vs">
+    <div class="card bad-b">
+      <h3 style="color:var(--red)">Run 1 — no early stopping</h3>
+      <ul>
+        <li>53 epochs, training loss → <b>0.0241</b> (memorised)</li>
+        <li>Test Acc <span class="bad">0.5728</span> · F1 <span class="bad">0.5936</span></li>
+        <li><b>Far below</b> the linear baseline (0.6011)</li>
+        <li>Reproducible: <code>train_mlp.py --no-early-stopping</code></li>
+      </ul>
+    </div>
+    <div class="mid">→</div>
+    <div class="card ok-b">
+      <h3 style="color:var(--green)">Run 2 — early stopping</h3>
+      <ul>
+        <li>18 epochs, weights restored to epoch <b>7</b> (best val acc 0.6209)</li>
+        <li>Test Acc <span class="good">0.6126</span> · F1 <span class="good">0.6632</span></li>
+        <li><b>Clears LR</b>: +1.15 pp Acc · +2.27 pp F1</li>
+        <li>Gain over Run 1: <span class="good">+3.98 pp Acc · +6.96 pp F1</span></li>
+      </ul>
+    </div>
+  </div>
+  <div class="card" style="margin-top:18px">
+    <h3>Lesson #6</h3>
+    <p>~100k parameters on 14.6k samples is a liability without regularisation. Validation-based early
+       stopping (<code>validation_fraction=0.15</code>, patience 10) is essentially free — and here it
+       flips the verdict from “worse than linear” to “beats linear”.</p>
+  </div>
+</section>
+
+<!-- ============ 14. PCA + KNN ============ -->
+<section class="slide" data-title="PCA + KNN — Cautionary Tale → Fix">
+  <div class="kicker">§4 Lesson #5 · The Diagnostic-Driven Fix</div>
+  <h2>PCA collapsed 687 columns into… one</h2>
+  <p class="lead" style="font-size:15px">PCA(0.90) + KNN scored barely above chance. The instinct says
+     “KNN can’t handle sparse binary spaces” — true, but not what actually broke. Reading
+     <code>pca.n_components_</code> revealed it: residual outlier variance in 4 nutrition columns ate
+     the whole 90% budget → <b>one retained component</b>.</p>
+  <div class="grid2" style="margin-top:18px">
+    <div class="card">
+      <h3>The fix: drop nutrition before PCA</h3>
+      <p>A <code>ColumnTransformer</code> drops <code>calories/protein/fat/sodium</code> pre-projection,
+         forcing PCA to evaluate the tags + culinary features on their own variance budget.</p>
+      <table style="margin-top:10px">
+        <thead><tr><th></th><th>components</th><th>Acc</th><th>F1</th></tr></thead>
+        <tbody>
+          <tr><td>Advanced (original)</td><td class="mono bad">1</td><td class="mono">0.5092</td><td class="mono">0.5508</td></tr>
+          <tr><td>Advanced (improved)</td><td class="mono good">178</td><td class="mono good">0.5726</td><td class="mono good">0.6023</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h3>Recovery — real but partial</h3>
+      <div class="bars" data-anim style="margin-top:6px">
+        <div class="row"><div class="name">KNN original</div><div class="track"><div class="fill red" data-w="50.9"></div></div><div class="val">.509</div></div>
+        <div class="row"><div class="name">KNN improved</div><div class="track"><div class="fill orange" data-w="57.3"></div></div><div class="val">.573</div></div>
+        <div class="row"><div class="name">LR (reference)</div><div class="track"><div class="fill blue" data-w="60.1"></div></div><div class="val">.601</div></div>
+        <div class="row"><div class="name">RF (champion)</div><div class="track"><div class="fill green" data-w="62.4"></div></div><div class="val">.624</div></div>
+      </div>
+      <p style="margin-top:10px">+6.34 pp Acc / +5.15 pp F1 on Advanced. The residual ~3 pp gap to LR is
+         the genuine sparse-binary distance penalty. <span class="hl">Capture structural diagnostics
+         before reasoning from theory.</span></p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 15. LESSONS ============ -->
+<section class="slide" data-title="Seven Lessons Learned">
+  <div class="kicker">§4 · What Actually Mattered</div>
+  <h2>Seven lessons (click to expand)</h2>
+  <div style="max-height:58vh;overflow-y:auto;padding-right:6px">
+    <details><summary><span class="lessonNum">1</span> Outliers beat model choice</summary>
+      <p>A handful of scraping artifacts crushed the standard-scaled space (fat std 0.034). No hyperparameter
+         tuning could fix it — only RobustScaler + median imputation. Diagnose input pathology before tuning models.</p></details>
+    <details><summary><span class="lessonNum">2</span> Convergence is correctness, not performance</summary>
+      <p>lbfgs’ warning looked cosmetic while per-recipe probabilities swung 99 points between runs.
+         Stable aggregate metrics ≠ a converged model.</p></details>
+    <details><summary><span class="lessonNum">3</span> Feature utility is model-dependent</summary>
+      <p>The engineered numerics sat near the bottom of LR’s |coef| ranking (597, 642 / 687) and at the very top
+         of RF’s importances. Conclusions from one model class can be exactly inverted by another.</p></details>
+    <details><summary><span class="lessonNum">4</span> F1 alone is unsafe — and select thresholds on validation</summary>
+      <p>The F1-maximising threshold labels 90.5% of recipes “Hit” (balance 19.4). Inspect balance and the
+         predicted-class distribution alongside F1 — and never select the threshold on the test set.</p></details>
+    <details><summary><span class="lessonNum">5</span> Read structural diagnostics before theorising</summary>
+      <p>“KNN fails in sparse spaces” was true but secondary — the real killer was PCA retaining one component,
+         visible in a single line: <code>pca.n_components_</code>.</p></details>
+    <details><summary><span class="lessonNum">6</span> Capacity is a liability without regularisation</summary>
+      <p>The unregularised MLP memorised the training set and fell far below the linear baseline; early stopping
+         (free!) flipped it to above-baseline. +3.98 pp Acc / +6.96 pp F1.</p></details>
+    <details><summary><span class="lessonNum">7</span> Audit that engineered features reach the model</summary>
+      <p>Six keyword features shipped as all-zero columns — silently. One column-sum check caught it; the pipeline
+         now fails loud on degenerate features. Models will happily train around dead inputs and report nothing.</p></details>
+  </div>
+</section>
+
+<!-- ============ 16. FINAL VERDICT ============ -->
+<section class="slide" data-title="Final Verdict & Operating Points">
+  <div class="kicker">§5 · The Bottom Line</div>
+  <h2>Best operating points</h2>
+  <div class="card" style="padding:10px 14px">
+    <table>
+      <thead><tr><th>Role</th><th>Model</th><th>Acc</th><th>F1</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr class="champ"><td>Best predictive accuracy</td><td>Random Forest (n=200)</td><td class="mono">0.6239</td><td class="mono">0.6753</td><td style="text-align:left;font-size:12.5px;color:var(--muted)">default threshold; less calibrated probabilities</td></tr>
+        <tr><td>Best interpretable model</td><td>Logistic Regression</td><td class="mono">0.6011</td><td class="mono">0.6405</td><td style="text-align:left;font-size:12.5px;color:var(--muted)">signed coefficients, ROC-AUC 0.6491</td></tr>
+        <tr><td>Balanced threshold</td><td>LR @ t = 0.55 (val-selected)</td><td class="mono">0.6005</td><td class="mono">0.5989</td><td style="text-align:left;font-size:12.5px;color:var(--muted)">FP/FN balance 0.80 on test</td></tr>
+        <tr><td>Max-F1 threshold</td><td>LR @ t = 0.30 (val-selected)</td><td class="mono">0.5822</td><td class="mono">0.7097</td><td style="text-align:left;font-size:12.5px;color:var(--muted)">balance 19.4 — the “F1 trap”, not recommended</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="grid3" style="margin-top:18px">
+    <div class="card"><h3>Predictive champion</h3><p>Random Forest — biggest beneficiary of the engineered features (+1.98 pp Acc).</p></div>
+    <div class="card"><h3>Interpretation champion</h3><p>Logistic Regression — calibrated probabilities and readable coefficients keep it indispensable.</p></div>
+    <div class="card"><h3>The ceiling</h3><p>Both non-linear models clear the linear baseline: the limit was the model class, not the features.</p></div>
+  </div>
+</section>
+
+<!-- ============ 17. REPRODUCE ============ -->
+<section class="slide" data-title="Reproduce It">
+  <div class="kicker">§6 · Reproducing the Pipeline</div>
+  <h2>Run the whole study yourself</h2>
+  <div class="codebox">pip install -r requirements.txt        # pinned — part of the repro contract
+
+python train_perceptron.py             # any order — fully independent
+python train_logistic_regression.py
+python train_adaboost.py
+python train_pca_knn.py
+python train_pca_knn_improved.py
+python train_random_forest.py
+python train_mlp.py
+python train_mlp.py --no-early-stopping   # optional: the §3.6 overfit baseline
+
+python evaluate_all_results.py         # 7-row summary + cross-model verdict
+python analysis.py                     # LR coefficients & confidence buckets
+python advanced_tuning.py              # threshold selection (validation split)</div>
+  <p class="footer-note">Every model writes <code>results/&lt;slug&gt;/metrics.json</code> + predictions +
+     <code>test_index.npy</code> + plots. The notebooks (01–08) mirror the same pipeline interactively.
+     Full report: <code>results/research.md</code>.</p>
+  <h2 style="margin-top:26px;font-size:26px">Thanks! <span style="color:var(--accent)">🍳</span></h2>
+  <p class="lead" style="font-size:15px">Itay Segev · Epicurious Hit/Miss Classifier · press <b>Home</b> to restart the deck</p>
+</section>
+
+<script>
+/* ================= deck engine ================= */
+const slides = Array.from(document.querySelectorAll('.slide'));
+const dotsEl = document.getElementById('dots');
+const counter = document.getElementById('counter');
+const progress = document.getElementById('progress');
+const toc = document.getElementById('toc');
+const tocList = document.getElementById('tocList');
+let cur = 0;
+
+slides.forEach((s, i) => {
+  const d = document.createElement('span');
+  d.addEventListener('click', () => go(i));
+  dotsEl.appendChild(d);
+  const li = document.createElement('li');
+  li.textContent = s.dataset.title;
+  li.addEventListener('click', () => { toc.classList.remove('open'); go(i); });
+  tocList.appendChild(li);
+});
+
+function go(i) {
+  cur = Math.max(0, Math.min(slides.length - 1, i));
+  slides.forEach((s, j) => s.classList.toggle('active', j === cur));
+  dotsEl.querySelectorAll('span').forEach((d, j) => d.classList.toggle('on', j === cur));
+  counter.textContent = (cur + 1) + ' / ' + slides.length;
+  progress.style.width = (cur / (slides.length - 1) * 100) + '%';
+  animateBars(slides[cur]);
+}
+
+function animateBars(slide) {
+  slide.querySelectorAll('[data-anim] .fill[data-w], [data-anim] .cfill[data-w]').forEach(f => {
+    f.style.width = '0';
+    requestAnimationFrame(() => requestAnimationFrame(() => { f.style.width = f.dataset.w + '%'; }));
+  });
+}
+
+document.getElementById('nextBtn').addEventListener('click', () => go(cur + 1));
+document.getElementById('prevBtn').addEventListener('click', () => go(cur - 1));
+document.getElementById('menuBtn').addEventListener('click', () => toc.classList.toggle('open'));
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') { e.preventDefault(); go(cur + 1); }
+  else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); go(cur - 1); }
+  else if (e.key === 'Home') go(0);
+  else if (e.key === 'End') go(slides.length - 1);
+  else if (e.key.toLowerCase() === 'm') toc.classList.toggle('open');
+  else if (e.key === 'Escape') toc.classList.remove('open');
+});
+
+/* swipe support */
+let tx = null;
+document.addEventListener('touchstart', e => tx = e.touches[0].clientX);
+document.addEventListener('touchend', e => {
+  if (tx === null) return;
+  const dx = e.changedTouches[0].clientX - tx;
+  if (Math.abs(dx) > 50) (dx < 0 ? go(cur + 1) : go(cur - 1));
+  tx = null;
+});
+
+/* ================= results table (slide 9) ================= */
+const MODELS = [
+  { name: 'Perceptron',                 acc: [0.5495, 0.5435], f1: [0.5726, 0.5667] },
+  { name: 'Logistic Regression',        acc: [0.6005, 0.6011], f1: [0.6452, 0.6405] },
+  { name: 'AdaBoost (n=100)',           acc: [0.5948, 0.5967], f1: [0.6621, 0.6518] },
+  { name: 'PCA(0.90) + KNN',            acc: [0.5147, 0.5092], f1: [0.5565, 0.5508] },
+  { name: 'PCA(0.90) + KNN (Improved)', acc: [0.5597, 0.5726], f1: [0.5804, 0.6023] },
+  { name: 'Random Forest (n=200)',      acc: [0.6041, 0.6239], f1: [0.6565, 0.6753], champ: true },
+  { name: 'MLP (128,64) + early stop',  acc: [0.5973, 0.6126], f1: [0.6668, 0.6632] },
+];
+const tbody = document.querySelector('#resultsTable tbody');
+function renderTable(metric) {
+  tbody.innerHTML = '';
+  MODELS.forEach(m => {
+    const [b, a] = m[metric];
+    const d = a - b;
+    const tr = document.createElement('tr');
+    if (m.champ) tr.classList.add('champ');
+    tr.innerHTML = '<td>' + m.name + '</td>' +
+      '<td class="mono">' + b.toFixed(4) + '</td>' +
+      '<td class="mono">' + a.toFixed(4) + '</td>' +
+      '<td class="mono ' + (d >= 0.001 ? 'good' : d <= -0.001 ? 'bad' : '') + '">' +
+      (d >= 0 ? '+' : '') + d.toFixed(4) + '</td>';
+    tbody.appendChild(tr);
+  });
+}
+const bAcc = document.getElementById('btnAcc'), bF1 = document.getElementById('btnF1');
+bAcc.addEventListener('click', () => { bAcc.classList.add('on'); bF1.classList.remove('on'); renderTable('acc'); });
+bF1.addEventListener('click', () => { bF1.classList.add('on'); bAcc.classList.remove('on'); renderTable('f1'); });
+renderTable('acc');
+
+/* ================= coefficient mirror chart (slide 10) ================= */
+const POS = [
+  ['kentucky derby', 1.33], ['pasadena', 1.26], ['brisket', 1.25], ['granola', 1.14],
+  ['sangria', 1.04], ['22-minute meals', 1.01], ['kahlúa', 1.00], ['sukkot', 0.93],
+];
+const NEG = [
+  ['pittsburgh', 1.31], ['aperitif', 1.30], ['leftovers', 1.25], ['lancaster', 1.23],
+  ['jícama', 1.19], ['friendsgiving', 1.17], ['whole wheat', 1.09], ['salsa', 1.07],
+];
+const coefChart = document.getElementById('coefChart');
+const MAXC = 1.35;
+for (let i = 0; i < POS.length; i++) {
+  const row = document.createElement('div');
+  row.className = 'coefRow';
+  row.innerHTML =
+    '<div class="side l"><div class="cfill red" data-w="' + (NEG[i][1] / MAXC * 100).toFixed(1) + '"></div></div>' +
+    '<div class="cname">−' + NEG[i][1].toFixed(2) + ' ' + NEG[i][0] + '&nbsp;&nbsp;·&nbsp;&nbsp;' + POS[i][0] + ' +' + POS[i][1].toFixed(2) + '</div>' +
+    '<div class="side r"><div class="cfill green" data-w="' + (POS[i][1] / MAXC * 100).toFixed(1) + '"></div></div>';
+  coefChart.appendChild(row);
+}
+coefChart.setAttribute('data-anim', '');
+
+/* ================= threshold slider (slide 11) — real test-sweep data ================= */
+const SWEEP = [
+  { t: 0.30, f1: 0.7097, acc: 0.5822, fp: 0.8469, fn: 0.0437, bal: 19.399, hits: 90.5 },
+  { t: 0.35, f1: 0.7045, acc: 0.5898, fp: 0.7833, fn: 0.0847, bal: 9.243,  hits: 85.4 },
+  { t: 0.40, f1: 0.6964, acc: 0.5997, fp: 0.6979, fn: 0.1407, bal: 4.959,  hits: 78.4 },
+  { t: 0.45, f1: 0.6765, acc: 0.6022, fp: 0.6001, fn: 0.2214, bal: 2.711,  hits: 69.5 },
+  { t: 0.50, f1: 0.6405, acc: 0.6011, fp: 0.4723, fn: 0.3349, bal: 1.410,  hits: 57.5 },
+  { t: 0.55, f1: 0.5989, acc: 0.6005, fp: 0.3510, fn: 0.4417, bal: 0.795,  hits: 46.2 },
+  { t: 0.60, f1: 0.5286, acc: 0.5822, fp: 0.2532, fn: 0.5614, bal: 0.451,  hits: 35.2 },
+  { t: 0.65, f1: 0.4582, acc: 0.5679, fp: 0.1731, fn: 0.6579, bal: 0.263,  hits: 26.3 },
+  { t: 0.70, f1: 0.3627, acc: 0.5479, fp: 0.1001, fn: 0.7591, bal: 0.132,  hits: 17.5 },
+];
+const slider = document.getElementById('thrSlider');
+function updateThr() {
+  const r = SWEEP[+slider.value];
+  document.getElementById('vF1').textContent  = r.f1.toFixed(4);
+  document.getElementById('vAcc').textContent = r.acc.toFixed(4);
+  document.getElementById('vBal').textContent = r.bal.toFixed(2);
+  document.getElementById('vHits').textContent = r.hits.toFixed(1) + '%';
+  document.getElementById('fpBar').style.width = (r.fp * 100).toFixed(1) + '%';
+  document.getElementById('fnBar').style.width = (r.fn * 100).toFixed(1) + '%';
+  document.getElementById('fpVal').textContent = r.fp.toFixed(3);
+  document.getElementById('fnVal').textContent = r.fn.toFixed(3);
+  const badge = document.getElementById('thrBadge');
+  const story = document.getElementById('thrStory');
+  if (r.t === 0.30) {
+    badge.className = 'badge trap'; badge.textContent = 't = 0.30 · the “F1 trap” (selected as best-F1 on validation)';
+    story.textContent = 'Highest F1 — but the model calls 90.5% of all recipes a Hit (true rate: 53.4%) and the balance ratio explodes to 19.4. F1 alone is an unsafe selection criterion.';
+  } else if (r.t === 0.55) {
+    badge.className = 'badge balanced'; badge.textContent = 't = 0.55 · most balanced (selected on validation)';
+    story.textContent = 'The recommended operating point: FP and FN rates nearly symmetric (balance 0.80) at almost no accuracy cost versus the default.';
+  } else if (r.t === 0.50) {
+    badge.className = 'badge default'; badge.textContent = 't = 0.50 · the default';
+    story.textContent = 'Out-of-the-box behaviour: biased toward predicting Hit (FP-rate 0.47 vs FN-rate 0.33, balance 1.41).';
+  } else {
+    badge.className = 'badge default'; badge.textContent = 't = ' + r.t.toFixed(2);
+    story.textContent = 'Accuracy stays nearly flat across 0.40–0.55 — what moves is which class absorbs the errors. Drag toward the edges to watch the FP/FN trade-off swing.';
+  }
+}
+slider.addEventListener('input', updateThr);
+updateThr();
+
+/* init */
+go(0);
+</script>
+</body>
+</html>

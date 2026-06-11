@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Story of a Recipe Classifier — From Two Broken Files to a Working Model</title>
+<style>
+  :root {
+    --bg: #0c0f14;
+    --bg2: #11151d;
+    --ink: #e9e4d8;
+    --muted: #9b958a;
+    --gold: #d9a441;
+    --teal: #5eead4;
+    --red: #f87171;
+    --green: #4ade80;
+    --blue: #7dd3fc;
+    --card: #161b24;
+    --border: #28303f;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --mono: "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: var(--serif); line-height: 1.75;
+  }
+
+  /* ---------- chrome ---------- */
+  #bar { position: fixed; top: 0; left: 0; height: 3px; width: 0;
+         background: linear-gradient(90deg, var(--gold), var(--teal)); z-index: 60; }
+  #rail {
+    position: fixed; left: 22px; top: 50%; transform: translateY(-50%);
+    display: flex; flex-direction: column; gap: 14px; z-index: 60;
+  }
+  #rail a {
+    width: 11px; height: 11px; border-radius: 50%;
+    background: transparent; border: 2px solid var(--border);
+    display: block; position: relative; transition: all .25s;
+  }
+  #rail a:hover { border-color: var(--gold); }
+  #rail a.on { background: var(--gold); border-color: var(--gold); transform: scale(1.25); }
+  #rail a .tip {
+    position: absolute; left: 22px; top: 50%; transform: translateY(-50%);
+    white-space: nowrap; font-family: var(--sans); font-size: 12px;
+    color: var(--ink); background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 4px 10px; opacity: 0; pointer-events: none;
+    transition: opacity .2s;
+  }
+  #rail a:hover .tip { opacity: 1; }
+  #topBtn {
+    position: fixed; bottom: 22px; right: 22px; z-index: 60;
+    width: 42px; height: 42px; border-radius: 50%;
+    background: var(--card); border: 1px solid var(--border); color: var(--gold);
+    font-size: 18px; cursor: pointer; opacity: 0; transition: opacity .3s;
+  }
+  #topBtn.show { opacity: 1; }
+
+  /* ---------- layout ---------- */
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 28px; }
+  section.chapter { padding: 110px 0 60px; }
+
+  /* ---------- hero ---------- */
+  #hero {
+    min-height: 100vh; display: flex; align-items: center;
+    background:
+      radial-gradient(ellipse 70% 50% at 70% 20%, rgba(217,164,65,.10), transparent),
+      radial-gradient(ellipse 60% 45% at 20% 85%, rgba(94,234,212,.07), transparent),
+      var(--bg);
+  }
+  .overline {
+    font-family: var(--mono); font-size: 12px; letter-spacing: 3px;
+    text-transform: uppercase; color: var(--teal); margin-bottom: 18px;
+  }
+  #hero h1 {
+    font-size: clamp(36px, 6vw, 64px); line-height: 1.15; font-weight: 700;
+    margin-bottom: 26px;
+  }
+  #hero h1 em { color: var(--gold); font-style: italic; }
+  .heroSub { font-size: clamp(16px, 2vw, 20px); color: var(--muted); max-width: 56ch; }
+  .scrollHint {
+    margin-top: 56px; font-family: var(--sans); font-size: 13px; color: var(--muted);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .scrollHint .arrow { animation: bob 1.6s ease-in-out infinite; color: var(--gold); font-size: 18px; }
+  @keyframes bob { 0%,100% { transform: translateY(0);} 50% { transform: translateY(7px);} }
+
+  /* ---------- chapter headers ---------- */
+  .chapNum {
+    font-family: var(--mono); font-size: 13px; color: var(--gold);
+    letter-spacing: 2px; margin-bottom: 10px;
+  }
+  h2 { font-size: clamp(28px, 4vw, 42px); line-height: 1.2; margin-bottom: 26px; font-weight: 700; }
+  h2 .dim { color: var(--muted); font-weight: 400; }
+  p { margin-bottom: 18px; font-size: 17.5px; }
+  p.big { font-size: clamp(19px, 2.2vw, 23px); line-height: 1.6; }
+  .muted { color: var(--muted); }
+  .gold { color: var(--gold); } .teal { color: var(--teal); }
+  .red { color: var(--red); } .green { color: var(--green); }
+  b { font-weight: 700; }
+  code { font-family: var(--mono); font-size: .88em; color: var(--blue); background: rgba(125,211,252,.07); padding: 1px 6px; border-radius: 5px; }
+
+  /* ---------- reveals ---------- */
+  .reveal { opacity: 0; transform: translateY(26px); transition: opacity .7s ease, transform .7s ease; }
+  .reveal.visible { opacity: 1; transform: none; }
+
+  /* ---------- components ---------- */
+  .pullquote {
+    border-left: 3px solid var(--gold); padding: 6px 0 6px 24px;
+    margin: 34px 0; font-size: clamp(19px, 2.4vw, 24px); font-style: italic; line-height: 1.55;
+  }
+  .pullquote .who { display: block; font-size: 13px; font-style: normal; color: var(--muted); margin-top: 10px; font-family: var(--sans); }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 22px 26px; margin: 26px 0; font-family: var(--sans);
+  }
+  .card h3 { font-family: var(--sans); font-size: 15px; color: var(--gold); margin-bottom: 10px; letter-spacing: .4px; }
+  .card p { font-size: 14.5px; color: var(--muted); margin-bottom: 8px; line-height: 1.65; }
+  .card p:last-child { margin-bottom: 0; }
+  .statRow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 30px 0; font-family: var(--sans); }
+  .stat { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px 12px; text-align: center; }
+  .stat .n { font-family: var(--mono); font-size: clamp(22px, 3vw, 32px); color: var(--gold); font-weight: 700; }
+  .stat .l { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+  .codebox {
+    background: #0a0d12; border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px 20px; font-family: var(--mono); font-size: 13.5px; line-height: 1.8;
+    color: #c9d4e3; overflow-x: auto; white-space: pre; margin: 26px 0;
+  }
+  .codebox .c { color: #5b6678; } .codebox .y { color: var(--gold); } .codebox .r { color: var(--red); } .codebox .g { color: var(--green); }
+
+  .twoCol { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 26px 0; font-family: var(--sans); }
+  .twoCol .card { margin: 0; }
+  .badCard { border-color: rgba(248,113,113,.4); }
+  .goodCard { border-color: rgba(74,222,128,.4); }
+
+  /* bars */
+  .bars { font-family: var(--sans); margin: 8px 0; }
+  .bars .row { display: grid; grid-template-columns: 160px 1fr 58px; gap: 10px; align-items: center; margin-bottom: 7px; }
+  .bars .nm { font-family: var(--mono); font-size: 12px; color: var(--muted); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bars .tr { height: 14px; background: #0a0d12; border-radius: 6px; overflow: hidden; }
+  .bars .fl { height: 100%; width: 0; border-radius: 6px; transition: width 1s cubic-bezier(.2,.8,.2,1); }
+  .bars .vl { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .fl.gold { background: linear-gradient(90deg,#b07d22,#d9a441); }
+  .fl.teal { background: linear-gradient(90deg,#14b8a6,#5eead4); }
+  .fl.red { background: linear-gradient(90deg,#dc2626,#f87171); }
+  .fl.green { background: linear-gradient(90deg,#16a34a,#4ade80); }
+  .fl.blue { background: linear-gradient(90deg,#0284c7,#7dd3fc); }
+
+  /* the bug reveal interaction */
+  #bugBtn {
+    font-family: var(--sans); font-size: 15px; font-weight: 700;
+    background: var(--gold); color: #1a1408; border: none; border-radius: 999px;
+    padding: 12px 28px; cursor: pointer; transition: transform .15s;
+  }
+  #bugBtn:hover { transform: scale(1.04); }
+  #bugReveal { max-height: 0; overflow: hidden; transition: max-height 1s ease; }
+  #bugReveal.open { max-height: 1300px; }
+
+  /* divider ornament */
+  .orn { text-align: center; color: var(--gold); font-size: 20px; letter-spacing: 14px; margin: 10px 0 0; opacity: .7; }
+
+  /* timeline strip in epilogue */
+  .journey { font-family: var(--sans); margin: 30px 0; border-left: 2px solid var(--border); padding-left: 26px; }
+  .journey .jstep { position: relative; padding-bottom: 22px; }
+  .journey .jstep::before {
+    content: ""; position: absolute; left: -33px; top: 6px; width: 12px; height: 12px;
+    border-radius: 50%; background: var(--bg); border: 3px solid var(--gold);
+  }
+  .journey .jstep b { font-size: 15px; }
+  .journey .jstep span { display: block; font-size: 13.5px; color: var(--muted); margin-top: 3px; line-height: 1.55; }
+
+  details {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 20px; margin-bottom: 10px; font-family: var(--sans); cursor: pointer;
+  }
+  details summary { font-size: 15px; font-weight: 700; list-style: none; }
+  details summary::before { content: "✦ "; color: var(--gold); }
+  details p { font-size: 14px; color: var(--muted); margin: 10px 0 0; }
+
+  footer { padding: 70px 0 90px; text-align: center; font-family: var(--sans); color: var(--muted); font-size: 14px; }
+  footer a { color: var(--teal); text-decoration: none; }
+
+  @media (max-width: 720px) {
+    #rail { display: none; }
+    .twoCol, .statRow { grid-template-columns: 1fr; }
+    section.chapter { padding: 80px 0 40px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="bar"></div>
+<nav id="rail"></nav>
+<button id="topBtn" title="Back to top">↑</button>
+
+<!-- ================= HERO ================= -->
+<header id="hero" data-ch="Prologue">
+  <div class="wrap">
+    <div class="overline">A research story · Epicurious Hit/Miss Classifier</div>
+    <h1>I tried to teach a machine<br>what makes a recipe <em>loved</em>.</h1>
+    <p class="heroSub">This is the whole story of the process — the two files that refused to merge,
+       the outliers that ambushed the scaler, a solver that lied politely, six features that
+       turned out to be ghosts, and what seven models finally agreed on.</p>
+    <div class="scrollHint"><span class="arrow">↓</span> scroll to begin the journey</div>
+  </div>
+</header>
+
+<!-- ================= CH 1 ================= -->
+<section class="chapter" id="ch1" data-ch="1 · Two stubborn files">
+  <div class="wrap">
+    <div class="chapNum reveal">CHAPTER ONE</div>
+    <h2 class="reveal">Two files that refused to talk</h2>
+    <p class="reveal">It started simply enough. Epicurious gave me two views of the same world:
+       <code>epi_r.csv</code> — twenty thousand recipes as a huge matrix of binary tags and nutrition
+       numbers — and <code>full_format_recipes.json</code> — the same recipes as raw text,
+       directions and ingredients. I needed them joined. How hard could it be?</p>
+    <p class="reveal">My first attempt was the naive one: join them by row position.
+       The result: <b class="red">only 2.8% of rows actually matched</b>. The two files were sorted
+       in completely different orders.</p>
+    <p class="reveal">Fine — join on the recipe title, then. That's when I met the second trap:
+       roughly <b>2,300 titles repeat</b>. There are many distinct recipes all named
+       “Chicken Soup”. A title join would multiply them against each other — a
+       <span class="gold">Cartesian explosion</span> of corrupted, cross-matched rows that would have
+       silently poisoned the dataset.</p>
+    <div class="card reveal">
+      <h3>The move that worked: fingerprinting</h3>
+      <p>Both files independently carry five numbers per recipe — rating, calories, protein, fat,
+         sodium. So I built a composite key: <code>title + the five numbers</code>, rounded to three
+         decimals so both files format identically. De-duplicate each side, then a strict,
+         validated <code>1:1</code> inner join.</p>
+    </div>
+    <div class="statRow reveal">
+      <div class="stat"><div class="n">2.8%</div><div class="l">match rate, positional join</div></div>
+      <div class="stat"><div class="n">~2,300</div><div class="l">duplicated titles (the trap)</div></div>
+      <div class="stat"><div class="n">18,223</div><div class="l">clean 1:1 validated recipes</div></div>
+    </div>
+    <p class="reveal">Before doing anything else, I split: 80/20, stratified, <code>random_state=42</code> —
+       <b>before</b> any feature engineering or fitted statistic. Every transformer in this story is
+       fit on the training split only. That discipline never gets broken, and it ends up mattering.</p>
+  </div>
+</section>
+
+<!-- ================= CH 2 ================= -->
+<section class="chapter" id="ch2" data-ch="2 · The outlier ambush">
+  <div class="wrap">
+    <div class="chapNum reveal">CHAPTER TWO</div>
+    <h2 class="reveal">The outlier ambush</h2>
+    <p class="reveal">With clean data in hand, I reached for the default tool:
+       <code>StandardScaler</code>. Then I looked at a sanity panel and stopped cold.</p>
+    <div class="pullquote reveal">After standard scaling, the test split’s <code>fat</code> column had a
+      standard deviation of 0.034. The entire feature had been flattened into a line.
+      <span class="who">— the diagnostic that changed the preprocessing</span></div>
+    <p class="reveal">The culprit: scraping artifacts. A handful of recipes carried impossible calorie
+       and sodium values, and those few monsters absorbed virtually all the variance. Any
+       distance-based or L2-regularised model downstream would have been crippled —
+       <b>before a single hyperparameter was ever tuned</b>.</p>
+    <div class="twoCol reveal">
+      <div class="card badCard"><h3 class="red">StandardScaler</h3>
+        <p>Mean/std are exquisitely sensitive to outliers.</p>
+        <p style="font-family:var(--mono);font-size:19px" class="red">fat std ≈ 0.034</p></div>
+      <div class="card goodCard"><h3 class="green">RobustScaler</h3>
+        <p>Median center, IQR scale — outliers can't vote.</p>
+        <p style="font-family:var(--mono);font-size:19px" class="green">fat IQR ≈ 0.962</p></div>
+    </div>
+    <p class="reveal">There was a quiet elegance available here too: pairing
+       <code>SimpleImputer(strategy="median")</code> with RobustScaler means every imputed value
+       (about 21% of nutrition cells were missing) lands at <b>exactly 0.0</b> in scaled space —
+       the perfectly neutral “I know nothing” position.</p>
+    <p class="reveal muted">Lesson #1 was already on the books: distributional pathology in the inputs
+       outranks model choice. Diagnose the space before you tune anything that lives in it.</p>
+  </div>
+</section>
+
+<!-- ================= CH 3 ================= -->
+<section class="chapter" id="ch3" data-ch="3 · Crafting the features">
+  <div class="wrap">
+    <div class="chapNum reveal">CHAPTER THREE</div>
+    <h2 class="reveal">Crafting the culinary features <span class="dim">— and designing a fair fight</span></h2>
+    <p class="reveal">The CSV's 674 tags say <i>what kind</i> of recipe something is. But the raw text
+       knows things the tags don't: how <i>elaborate</i> a recipe is, whether it sears or simmers,
+       whether it asks you for saffron or sriracha. I built a custom transformer,
+       <code>CulinaryFeatureExtractor</code>, to mine nine features from the directions and ingredients:</p>
+    <div class="card reveal">
+      <h3>The nine engineered features</h3>
+      <p><b>3 numerics</b> — <code>num_steps</code>, <code>num_ingredients</code>,
+         <code>avg_words_per_step</code> (robust-scaled like the nutrition).</p>
+      <p><b>6 keyword binaries</b> — curated domain-knowledge groups:
+         high-heat techniques (sear, broil, char…), low-and-slow (braise, confit, smoke…),
+         technical execution (emulsify, deglaze, julienne…), prep &amp; patience (marinate, brine,
+         overnight…), flavor development (caramelize, reduce, roux…), premium ingredients
+         (truffle, saffron, miso…).</p>
+    </div>
+    <p class="reveal">Then the experimental design — the part I'm still proud of: <b>two parallel
+       matrices</b>. <span class="teal">Baseline</span> (678 columns: nutrition + tags) and
+       <span class="gold">Advanced</span> (687: the same + my nine features). Identical rows, identical
+       split. Whatever difference shows up downstream is attributable to those nine columns alone.
+       Every model would run on both — a controlled A/B test of my own feature engineering.</p>
+    <p class="reveal muted">Seven models were lined up: Perceptron as the sanity floor, Logistic
+       Regression as the interpretable workhorse, AdaBoost, PCA+KNN, and — added later for reasons
+       you'll see — Random Forest and an MLP. Each got its own training script writing to its own
+       <code>results/&lt;slug&gt;/metrics.json</code>; a pure-read aggregator assembles the verdict.
+       One constant, <code>42</code>, bound in exactly one file, seeds everything.</p>
+  </div>
+</section>
+
+<!-- ================= CH 4 ================= -->
+<section class="chapter" id="ch4" data-ch="4 · The solver that lied">
+  <div class="wrap">
+    <div class="chapNum reveal">CHAPTER FOUR</div>
+    <h2 class="reveal">The solver that lied politely</h2>
+    <p class="reveal">Logistic Regression trained fine — or so it seemed. There was a convergence
+       warning from the default <code>lbfgs</code> solver, but accuracy looked stable, F1 looked
+       stable, and warnings are easy to dismiss as cosmetic. I raised <code>max_iter</code> and
+       moved on. Almost.</p>
+    <p class="reveal">While inspecting per-recipe probabilities, one test recipe caught my eye —
+       <i>Lamb Köfte with Tarator Sauce</i>:</p>
+    <div class="codebox reveal"><span class="c"># same model, same data — only the iteration budget differs</span>
+max_iter = 2000   →   p(Hit) = <span class="g">0.9997</span>
+max_iter = 5000   →   p(Hit) = <span class="r">0.0000</span></div>
+    <p class="reveal">A <b>99-percentage-point swing</b> on a single prediction. The optimizer had never
+       been anywhere near the optimum; the aggregate metrics had simply absorbed the chaos and
+       smiled. Switching to <code>liblinear</code> — coordinate descent, at home on sparse
+       high-dimensional binary data — made convergence clean and every probability reproducible.</p>
+    <div class="pullquote reveal">Stable summary metrics do not imply a converged model.
+      Convergence is a correctness property, not a performance knob.
+      <span class="who">— Lesson #2</span></div>
+  </div>
+</section>
+
+<!-- ================= CH 5 — THE BUG ================= -->
+<section class="chapter" id="ch5" data-ch="5 · The silent bug">
+  <div class="wrap">
+    <div class="chapNum reveal">CHAPTER FIVE</div>
+    <h2 class="reveal">The silent bug <span class="dim">— six features that were ghosts</span></h2>
+    <p class="reveal">By now the fleet was training, numbers were flowing, and a story was writing
+       itself: the linear model assigned my six keyword features coefficients of zero, and I had a
+       beautiful explanation ready — L2 regularisation shrinking collinear features, the keyword
+       groups being redundant with the existing tags. Plausible. Educated. Wrong.</p>
+    <p class="reveal big">Then an audit asked one question my pipeline had never asked itself:</p>
+    <div class="codebox reveal">X_train_advanced.filter(like=<span class="y">"has_"</span>).sum()</div>
+    <div class="reveal" style="text-align:center;margin:30px 0">
+      <button id="bugBtn">Run the check ▸</button>
+    </div>
+    <div id="bugReveal">
+      <div class="codebox">has_high_heat_techniques      <span class="r">0</span>
+has_low_and_slow_techniques   <span class="r">0</span>
+has_technical_execution       <span class="r">0</span>
+has_prep_and_patience         <span class="r">0</span>
+has_flavor_development        <span class="r">0</span>
+has_premium_ingredients       <span class="r">0</span></div>
+      <p class="big" style="margin-top:24px"><b class="red">All six columns were zeros.</b> In every
+         model. In every run. From the beginning.</p>
+      <p>The curated keyword lists existed — but only inside a sanity-check function nobody called.
+         The pipeline itself constructed the extractor <b>bare</b>, with empty keyword groups, and
+         the extractor's schema-stability contract did exactly what it was designed to do: emit
+         all-zero columns without a word of complaint. No crash. Plausible shapes. Reasonable
+         metrics. An entire interpretive story written about features that did not exist.</p>
+      <div class="card">
+        <h3>The fix — and the vow</h3>
+        <p>1. The domain knowledge moved to one constant, <code>CULINARY_KEYWORDS</code>, consumed by a
+           factory: <code>make_culinary_extractor()</code>.</p>
+        <p>2. The pipeline now uses that factory — the words actually reach the model.</p>
+        <p>3. And a guard: the build <b>raises an error</b> if any engineered binary is all-zero on the
+           training split. This class of bug doesn't get to be silent twice.</p>
+      </div>
+      <p>With the features alive, they fired on 14.6%–39.0% of training recipes — healthy, informative
+         rates. Everything had to be retrained, and every number that follows comes from the fixed
+         pipeline.</p>
+      <div class="pullquote">A feature pipeline should fail loud when a feature is degenerate —
+        models will happily train around dead inputs and report nothing.
+        <span class="who">— Lesson #7, the expensive one</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= CH 6 ================= -->
+<section class="chapter" id="ch6" data-ch="6 · Seven models, one verdict">
+  <div class="wrap">
+    <div class="chapNum reveal">CHAPTER SIX</div>
+    <h2 class="reveal">The retrained showdown</h2>
+    <p class="reveal">Seven classifiers, each trained on both matrices, judged on the held-out
+       3,645-recipe test set. The linear models told one story; the non-linear ones told a better
+       one. Advanced-matrix accuracy:</p>
+    <div class="card reveal">
+      <div class="bars">
+        <div class="row"><div class="nm">PCA + KNN</div><div class="tr"><div class="fl red" data-w="50.9"></div></div><div class="vl">.5092</div></div>
+        <div class="row"><div class="nm">Perceptron</div><div class="tr"><div class="fl blue" data-w="54.3"></div></div><div class="vl">.5435</div></div>
+        <div class="row"><div class="nm">KNN (improved)</div><div class="tr"><div class="fl blue" data-w="57.3"></div></div><div class="vl">.5726</div></div>
+        <div class="row"><div class="nm">AdaBoost</div><div class="tr"><div class="fl blue" data-w="59.7"></div></div><div class="vl">.5967</div></div>
+        <div class="row"><div class="nm">Logistic Regression</div><div class="tr"><div class="fl teal" data-w="60.1"></div></div><div class="vl">.6011</div></div>
+        <div class="row"><div class="nm">MLP + early stop</div><div class="tr"><div class="fl green" data-w="61.3"></div></div><div class="vl">.6126</div></div>
+        <div class="row"><div class="nm">Random Forest</div><div class="tr"><div class="fl gold" data-w="62.4"></div></div><div class="vl">.6239</div></div>
+      </div>
+      <p style="margin-top:12px;font-size:13px">Majority-class baseline: 0.534 · bars scaled to accuracy</p>
+    </div>
+    <p class="reveal"><b class="gold">Random Forest took the crown</b> — 0.6239 accuracy, 0.6753 F1,
+       a clear +2.28pp / +3.49pp over the converged Logistic Regression. And the engineered features?
+       Vindicated where it counts: every model that can exploit interactions gained from them
+       (RF +1.98pp, MLP +1.54pp, improved KNN +1.29pp accuracy), while the purely linear models
+       stayed flat. The signal was real — it just wasn't <i>linear</i>.</p>
+    <p class="reveal">And the most satisfying twist: Random Forest's feature-importance ranking
+       <b>inverted</b> the linear picture. The continuous numerics that L2 had buried —
+       <code>avg_words_per_step</code> (rank 597/687 in LR!) — sat at the very top of RF's ranking,
+       with all four nutrition columns and my other two numerics right behind, and <b>all six
+       keyword features inside RF's top 20</b>, above ~670 of the editorial tags.</p>
+    <div class="pullquote reveal">Feature utility is not a property of the feature.
+      It is a property of the (feature × model class) pair.
+      <span class="who">— Lesson #3, the project's deepest finding</span></div>
+  </div>
+</section>
+
+<!-- ================= CH 7 ================= -->
+<section class="chapter" id="ch7" data-ch="7 · Two rescue missions">
+  <div class="wrap">
+    <div class="chapNum reveal">CHAPTER SEVEN</div>
+    <h2 class="reveal">Two rescue missions</h2>
+
+    <p class="reveal big" style="color:var(--gold)">Rescue #1 — the network that memorised everything.</p>
+    <p class="reveal">The MLP (128, 64) — about 100,000 parameters against 14,578 recipes — did
+       exactly what unsupervised capacity does: it drove its training loss to 0.0241, essentially
+       memorising the training set, while its test accuracy crashed to <b class="red">0.5728</b>,
+       far below plain Logistic Regression. More power, worse model.</p>
+    <p class="reveal">The cure cost nothing: validation-based early stopping. Hold out 15% of the
+       training split internally, watch validation accuracy, stop after 10 patient epochs, restore
+       the best weights (epoch 7 of 18). Same architecture, same seed, same data:</p>
+    <div class="twoCol reveal">
+      <div class="card badCard"><h3 class="red">No early stopping</h3>
+        <p style="font-family:var(--mono)">53 epochs · loss → 0.0241</p>
+        <p style="font-family:var(--mono);font-size:18px" class="red">Acc 0.5728 · F1 0.5936</p></div>
+      <div class="card goodCard"><h3 class="green">Early stopping</h3>
+        <p style="font-family:var(--mono)">18 epochs · restored @ 7</p>
+        <p style="font-family:var(--mono);font-size:18px" class="green">Acc 0.6126 · F1 0.6632</p></div>
+    </div>
+    <p class="reveal">+3.98pp accuracy, +6.96pp F1 — and the regularised network now <b>clears the
+       linear ceiling</b> instead of collapsing under it. One stopping rule is the entire difference
+       between “worse than linear” and “better than linear.”</p>
+
+    <p class="reveal big" style="color:var(--gold);margin-top:46px">Rescue #2 — the projection that ate 686 columns.</p>
+    <p class="reveal">PCA(0.90) + KNN scored barely above coin-flipping, and the tempting explanation
+       was theoretical: “KNN can't do Euclidean distance in sparse binary spaces.” True — but not
+       what happened. One structural diagnostic told the real story:</p>
+    <div class="codebox reveal">pca.n_components_   →   <span class="r">1</span>   <span class="c"># one. out of 687.</span></div>
+    <p class="reveal">Even after robust scaling, residual outlier variance in the four nutrition
+       columns swallowed the entire 90% variance budget. PCA dutifully kept a single
+       nutrition-aligned axis and discarded everything else; KNN was doing similarity search on a
+       one-dimensional shadow of the data. The fix — drop the four nutrition columns before
+       projecting — exploded the retained space to <b>203 / 178 components</b> and bought back
+       +4.5 to +6.3pp of accuracy. Partial, honest, diagnostic-driven.</p>
+  </div>
+</section>
+
+<!-- ================= CH 8 ================= -->
+<section class="chapter" id="ch8" data-ch="8 · Reading the model's mind">
+  <div class="wrap">
+    <div class="chapNum reveal">CHAPTER EIGHT</div>
+    <h2 class="reveal">Reading the model's mind <span class="dim">— success, disaster, and a trap</span></h2>
+    <p class="reveal">With a converged Logistic Regression, the coefficients finally meant something.
+       The strongest Hit signals read like a party invitation: <span class="teal">kentucky derby,
+       pasadena, brisket, sangria, kahlúa, sukkot</span> — occasion recipes, rated generously by
+       people already in a good mood. The strongest Miss signals read like obligations:
+       <span class="red">leftovers, whole wheat, slow cooker</span> — the “I'd rather have the real
+       thing” effect. (And some honest leakage: tags like <i>#cakeweek</i> and <i>pittsburgh</i> are
+       editorial metadata, not cooking.)</p>
+    <p class="reveal">The single most reliable engineered signal stayed simple:
+       <code>num_ingredients</code>, coefficient +0.40 — holding the tags constant, more ambitious
+       recipes rate better.</p>
+    <p class="reveal">Last act: tuning the decision threshold. And here the process caught
+       <i>itself</i> making a methodological mistake — an earlier draft picked the threshold by
+       sweeping the <b>test set</b>, which is quiet self-deception. The redo: select on a 15%
+       validation split carved from training, then evaluate once on test.</p>
+    <div class="card reveal">
+      <h3>What the validation-selected thresholds did on test</h3>
+      <p><b>t = 0.30 (max-F1):</b> F1 0.7097 — but it labels <b class="red">90.5%</b> of recipes “Hit”
+         (true rate 53.4%), FP/FN balance 19.4. The “best F1” threshold is a trap that the harmonic
+         mean hides.</p>
+      <p><b>t = 0.55 (most balanced):</b> F1 0.5989, accuracy 0.6005, balance <b class="green">0.80</b> —
+         nearly symmetric errors at virtually no accuracy cost. The recommended operating point.</p>
+    </div>
+    <p class="reveal muted">Accuracy barely moves across t = 0.40–0.55. What moves is <i>which class
+       absorbs the errors</i> — a choice that belongs to the use case, not the optimiser.</p>
+  </div>
+</section>
+
+<!-- ================= EPILOGUE ================= -->
+<section class="chapter" id="ch9" data-ch="Epilogue · What I'd tell my past self">
+  <div class="wrap">
+    <div class="chapNum reveal">EPILOGUE</div>
+    <h2 class="reveal">What I'd tell my past self</h2>
+    <p class="reveal">The journey, compressed:</p>
+    <div class="journey reveal">
+      <div class="jstep"><b>Two files, no key</b><span>positional join 2.8% → composite fingerprint → 18,223 clean recipes</span></div>
+      <div class="jstep"><b>The outlier ambush</b><span>StandardScaler flattened to std 0.034 → RobustScaler + median imputation</span></div>
+      <div class="jstep"><b>Nine features, two matrices</b><span>a controlled A/B test of the feature engineering</span></div>
+      <div class="jstep"><b>The polite liar</b><span>lbfgs' 99-point probability swing → liblinear, true convergence</span></div>
+      <div class="jstep"><b>The silent bug</b><span>six all-zero ghost features caught by a one-line audit → factory + loud guard → full retrain</span></div>
+      <div class="jstep"><b>The verdict</b><span>RF 0.6239 champion; the regularised MLP clears the linear ceiling too; the features were real — just not linear</span></div>
+      <div class="jstep"><b>Rescues &amp; readings</b><span>PCA's 1-component collapse fixed; thresholds selected on validation, not test</span></div>
+    </div>
+    <p class="reveal" style="margin-top:30px">And the seven lessons, the actual takeaway of the project:</p>
+    <div class="reveal">
+      <details><summary>1 · Outliers in the input space beat model choice</summary><p>No hyperparameter could have rescued a feature space flattened to std 0.034. Diagnose distributions before tuning models.</p></details>
+      <details><summary>2 · Convergence is correctness, not performance</summary><p>Aggregate metrics stayed stable while individual probabilities swung 99 points. A warning is data.</p></details>
+      <details><summary>3 · Feature utility is model-dependent</summary><p>The same features ranked 597/687 in LR and #1 in RF. Never discard a feature on one model class's testimony.</p></details>
+      <details><summary>4 · F1 alone is unsafe — and select thresholds on validation</summary><p>The max-F1 threshold called 90.5% of everything a Hit. Check balance, and never let the test set pick your operating point.</p></details>
+      <details><summary>5 · Read structural diagnostics before theorising</summary><p>“KNN struggles in sparse spaces” was true and irrelevant; <code>pca.n_components_ == 1</code> was the actual story.</p></details>
+      <details><summary>6 · Capacity is a liability without regularisation</summary><p>The same MLP sits 2.8pp below or 1.2pp above the linear baseline depending solely on the stopping rule.</p></details>
+      <details><summary>7 · Audit that engineered features actually reach the model</summary><p>Six features shipped as zeros, silently, while a plausible story was written about them. Fail loud on degenerate inputs.</p></details>
+    </div>
+    <div class="orn reveal">✦ ✦ ✦</div>
+    <p class="reveal big" style="margin-top:34px;text-align:center">The model predicts 62% of hits correctly.<br>
+       The process taught me everything else.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    Itay Segev · Epicurious Hit/Miss Classifier ·
+    full report in <code>results/research.md</code> ·
+    slide deck in <code>research_slides.html</code>
+  </div>
+</footer>
+
+<script>
+/* progress bar + back-to-top */
+const bar = document.getElementById('bar');
+const topBtn = document.getElementById('topBtn');
+addEventListener('scroll', () => {
+  const h = document.documentElement;
+  bar.style.width = (h.scrollTop / (h.scrollHeight - h.clientHeight) * 100) + '%';
+  topBtn.classList.toggle('show', h.scrollTop > 600);
+}, { passive: true });
+topBtn.addEventListener('click', () => scrollTo({ top: 0, behavior: 'smooth' }));
+
+/* chapter rail */
+const chapters = Array.from(document.querySelectorAll('[data-ch]'));
+const rail = document.getElementById('rail');
+chapters.forEach(ch => {
+  const a = document.createElement('a');
+  a.href = '#' + (ch.id || 'hero');
+  a.innerHTML = '<span class="tip">' + ch.dataset.ch + '</span>';
+  rail.appendChild(a);
+});
+const railLinks = Array.from(rail.children);
+const spy = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      const i = chapters.indexOf(e.target);
+      railLinks.forEach((l, j) => l.classList.toggle('on', j === i));
+    }
+  });
+}, { rootMargin: '-40% 0px -55% 0px' });
+chapters.forEach(c => spy.observe(c));
+
+/* reveal-on-scroll + bar animation */
+const io = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      e.target.classList.add('visible');
+      e.target.querySelectorAll('.fl[data-w]').forEach(f => {
+        requestAnimationFrame(() => { f.style.width = f.dataset.w + '%'; });
+      });
+      io.unobserve(e.target);
+    }
+  });
+}, { threshold: 0.18 });
+document.querySelectorAll('.reveal, .card').forEach(el => io.observe(el));
+
+/* the bug reveal */
+const bugBtn = document.getElementById('bugBtn');
+bugBtn.addEventListener('click', () => {
+  document.getElementById('bugReveal').classList.add('open');
+  bugBtn.textContent = '…oh no.';
+  bugBtn.disabled = true;
+  bugBtn.style.opacity = .6;
+});
+</script>
+</body>
+</html>
